@@ -1,0 +1,192 @@
+---
+description: Playwright E2E testing standards and best practices
+globs: "**/*.spec.ts,**/*.spec.js,**/e2e/**/*,**/tests/**/*.spec.*,**/playwright.config.*,**/playwright/**/*.ts"
+alwaysApply: false
+---
+
+# Playwright E2E Standards
+
+## Testing philosophy
+
+- **Test user-visible behavior.** Verify what end users see and interact with. Avoid implementation details (CSS classes, internal state, function names).
+- **Isolate tests.** Each test must run independently with its own storage, cookies, and data. Use `beforeEach` for shared setup (e.g. login). Use [setup project](https://playwright.dev/docs/auth) for shared signed-in state.
+- **Avoid third-party dependencies.** Don't test external sites or APIs you don't control. Mock with `page.route()` or `context.route()`.
+- **Control data.** Use staging with stable data, or seed fixtures. For visual regression, keep OS and browser versions consistent.
+
+## Locators
+
+### Priority order
+
+1. `getByRole()` — accessibility role + name (preferred).
+2. `getByLabel()` — form controls.
+3. `getByText()` — static content.
+4. `getByPlaceholder()` — inputs.
+5. `getByAltText()` — images.
+6. `getByTitle()` — title attribute.
+7. `getByTestId()` — fallback for dynamic/structural elements. Configure `testIdAttribute` in config if using custom attr (e.g. `data-pw`).
+
+```typescript
+// ✅ GOOD
+page.getByRole('button', { name: 'Submit' });
+page.getByLabel('Email').fill('user@example.com');
+page.getByText('Welcome').first();
+
+// ❌ BAD — fragile to DOM changes
+page.locator('button.buttonIcon.episode-actions-later');
+page.locator('#tsf div:nth-child(2) div.A8SBwf input');
+```
+
+### Chaining and filtering
+
+```typescript
+await page
+  .getByRole('listitem')
+  .filter({ hasText: 'Product 2' })
+  .getByRole('button', { name: 'Add to cart' })
+  .click();
+```
+
+### iframes
+
+Use `page.frameLocator()` to target elements inside iframes. Built-in locators work inside `frameLocator`:
+
+```typescript
+await page.frameLocator('iframe[name="embed"]').getByRole('button', { name: 'Submit' }).click();
+```
+
+### Use codegen
+
+Run `npx playwright codegen <url>` or use the VS Code extension to generate resilient locators.
+
+## Assertions
+
+- **Use web-first assertions** that auto-wait and retry: `toBeVisible()`, `toHaveText()`, `toContainText()`, `toHaveValue()`, etc.
+- **Always await** the `expect` call.
+- **Never use manual checks** like `expect(await locator.isVisible()).toBe(true)` — they don't retry.
+
+```typescript
+// ✅ GOOD
+await expect(page.getByText('Welcome')).toBeVisible();
+await expect(page.getByTestId('status')).toHaveText('Submitted');
+
+// ❌ BAD
+expect(await page.getByText('Welcome').isVisible()).toBe(true);
+```
+
+- **Soft assertions** for multiple checks that shouldn't stop the test immediately:
+  `await expect.soft(locator).toHaveText('Success');`
+- **Custom expect messages** for clarity: `await expect(locator, 'should show success').toBeVisible();`
+- **Async polling**: Use `expect.poll()` or `expect().toPass()` for conditions that need retries (e.g. API eventually returns 200).
+
+## Actions
+
+- Prefer `fill()` over `type()` for inputs — faster and replaces existing value.
+- Use `press()` for keyboard shortcuts (Enter, Tab, Escape).
+- Use `check()` / `uncheck()` for checkboxes and radio buttons.
+
+## Test structure
+
+### One feature per test
+
+Each test should verify one user flow. Short, focused tests make failures easy to interpret.
+
+### Page Object Model (POM)
+
+Extract page logic for complex flows:
+
+```typescript
+// pages/LoginPage.ts
+export class LoginPage {
+  constructor(private page: Page) {}
+  async login(email: string, password: string) {
+    await this.page.getByLabel('Email').fill(email);
+    await this.page.getByLabel('Password').fill(password);
+    await this.page.getByRole('button', { name: 'Sign in' }).click();
+  }
+}
+```
+
+### Hooks
+
+- Use `test.beforeEach` for per-test setup (e.g. goto, login).
+- Use `test.describe` to group related tests.
+- Use `test.describe.configure({ mode: 'parallel' })` when tests in a file are independent.
+
+### Fixtures
+
+- Prefer **fixtures** over beforeEach for setup+teardown. Use `test.extend()` to create custom fixtures (e.g. `todoPage`, `loggedInPage`).
+- Built-in: `page`, `context`, `browser`, `request`. Use `request` for API calls.
+- Worker-scoped fixtures (`{ scope: 'worker' }`) for shared setup (e.g. one account per worker).
+- Encapsulate setup and teardown in the same fixture with `await use(value)`.
+
+### test.step
+
+Use `test.step()` for logical steps in reports and traces:
+
+```typescript
+await test.step('fill login form', async () => {
+  await page.getByLabel('Email').fill('user@example.com');
+  await page.getByLabel('Password').fill('secret');
+});
+```
+
+## Network and mocking
+
+- Mock third-party APIs and external services with `page.route()` or `context.route()`.
+- Use `route.fulfill()` to return controlled responses.
+
+```typescript
+await page.route('**/api/fetch_external', route =>
+  route.fulfill({ status: 200, body: JSON.stringify(testData) })
+);
+await page.goto('/dashboard');
+```
+
+## File structure
+
+```
+e2e/  (or tests/)
+├── fixtures/              # Custom test.extend fixtures
+├── pages/                 # Page Object classes
+├── tests/
+│   ├── auth.setup.ts      # Setup project for auth
+│   ├── auth.spec.ts
+│   └── dashboard.spec.ts
+├── playwright/
+│   └── .auth/             # Storage state (add to .gitignore)
+├── playwright.config.ts
+└── global-setup.ts        # Optional: one-time setup
+```
+
+## API testing
+
+- Use the built-in `request` fixture for API tests. No browser needed.
+- Prepare server state via API before UI tests: create data, then `page.goto()`.
+- Validate postconditions via API after UI actions.
+- Set `baseURL` and `extraHTTPHeaders` in config for API requests.
+
+```typescript
+test('created issue appears in list', async ({ request, page }) => {
+  await request.post('/api/issues', { data: { title: 'Bug 1' } });
+  await page.goto('/issues');
+  await expect(page.getByText('Bug 1')).toBeVisible();
+});
+```
+
+## Authentication
+
+- Use a **setup project** with `testMatch: /.*\.setup\.ts/` to authenticate once; save `storageState` to `playwright/.auth/`.
+- Add `playwright/.auth/` to `.gitignore` — it contains sensitive cookies.
+- Other projects depend on setup and use `storageState: 'playwright/.auth/user.json'`.
+- Authenticate via API when supported — faster than UI login.
+- For tests that modify server state: use one account per worker (worker-scoped auth fixture).
+
+## Config (`playwright.config.ts`)
+
+- Use TypeScript (`.ts`) for better IDE support.
+- Define **projects** for browsers: Chromium, Firefox, WebKit (at least Chromium for CI).
+- Set `retries` (e.g. 1) for CI to handle flakiness.
+- Configure `trace: 'on-first-retry'` for failed test traces; avoid `'on'` for every run.
+- Set `baseURL` for `page.goto('/path')` shortcuts.
+- Use `use.video` or `use.trace` for failure debugging.
+- **Timeouts**: Set `timeout` (test), `expect.timeout`, or per-test `test.setTimeout()`. Default test timeout is 30s.

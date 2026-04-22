@@ -1,0 +1,68 @@
+---
+description: Terraform stack, init, file structure, naming
+globs: "**/*.tf,**/*.tf.json"
+alwaysApply: false
+---
+
+# Terraform — Core (Part 1)
+
+## Stack and init
+
+- **Terraform** 1.5+. Pin version in `required_version`.
+- **Providers**: Pin in `required_providers`. AWS, GCP, Azure as needed.
+- **Tools**: terraform-docs, tflint, pre-commit (optional).
+
+```bash
+mkdir infra && cd infra
+terraform init
+```
+
+## File structure
+
+- **One logical resource group per file.** e.g. `vpc.tf`, `rds.tf`, `ec2.tf`.
+- Naming: `{resource_type}.tf` or `{env}-{resource}.tf` for env-specific.
+- Use **modules** for reusable components. Module in `modules/`; call from `main.tf` or env-specific dirs.
+
+```
+infra/
+├── main.tf           # Provider, backend, module calls
+├── variables.tf      # Input variables
+├── outputs.tf        # Outputs
+├── versions.tf       # required_version, required_providers
+├── dev.tfvars        # Dev-specific values
+├── prod.tfvars       # Prod-specific values
+└── modules/
+    ├── vpc/
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   ├── outputs.tf
+    │   └── README.md
+    └── rds/
+        ├── main.tf
+        ├── variables.tf
+        └── outputs.tf
+```
+
+## Naming conventions
+
+- **Resources**: `{env}_{resource_type}_{name}` (e.g. `prod_rds_main`).
+- **Variables**: snake_case. **Outputs**: snake_case.
+- **Files**: `{resource}.tf`, `variables.tf`, `outputs.tf`, `{env}.tfvars`.
+
+**Provider block:**
+```hcl
+provider "aws" {
+  region = var.region
+}
+```
+
+**Provider alias** (multi-region or multi-account):
+```hcl
+provider "aws" {
+  alias  = "us-west"
+  region = "us-west-2"
+}
+resource "aws_s3_bucket" "replica" {
+  provider = aws.us-west
+}
+```

@@ -1,0 +1,90 @@
+---
+description: Redis usage and caching standards
+globs: "**/*redis*,**/cache/**/*,**/services/**/*cache*,**/services/**/*redis*"
+alwaysApply: false
+---
+
+# Redis Standards
+
+## Key naming
+
+- **Consistent prefix** per application: `app:`, `{service}:`, or `{env}:{app}:`.
+- Structure: `{prefix}:{entity}:{id}` or `{prefix}:{entity}:{id}:{subkey}`.
+- Example: `session:user:abc123`, `cache:product:xyz`, `rate:ip:1.2.3.4`.
+- No spaces; avoid special characters. Use colons for hierarchy.
+- Max key length 512 bytes; keep keys short but readable.
+
+```txt
+# ✅ GOOD
+session:user:abc-123
+cache:product:xyz:price
+rate:login:192.168.1.1
+
+# ❌ BAD
+user_session_abc123  # No hierarchy
+myapp:very:long:key:with:too:many:segments:that:might:cause:issues
+```
+
+## TTL and eviction
+
+- **Set TTL** on cache keys to avoid unbounded growth. Use `EXPIRE` or `SET ... EX` at creation.
+- Choose policy: `volatile-lru`, `allkeys-lru`, etc. Document in ops runbook.
+- Session keys: TTL = session timeout. Cache keys: TTL = freshness (e.g. 5m, 1h).
+- Never store permanent data in Redis without a separate durable store; treat Redis as ephemeral.
+
+```javascript
+// ✅ GOOD
+await redis.setex(`cache:user:${id}`, 300, JSON.stringify(user));  // 5 min
+
+// ❌ BAD
+await redis.set(`cache:user:${id}`, JSON.stringify(user));  // No TTL
+```
+
+## Security and data
+
+- **No sensitive data** without encryption. Redis data may be visible to admins.
+- Do not store passwords or tokens in plain text. Use Redis for session IDs; store session data encrypted or in app memory.
+- Connection: use auth (`AUTH`), TLS in production. Restrict network access.
+
+## Performance
+
+- Use **pipelines** for multiple commands to reduce round-trips.
+- Avoid blocking commands (`BLPOP`, `BRPOP`) in request path; use with timeouts.
+- Prefer `SCAN` over `KEYS` for production; `KEYS *` blocks the server.
+- Connection pooling or single client per process; handle reconnection and errors.
+
+```javascript
+// ✅ GOOD - pipeline
+const pipeline = redis.pipeline();
+pipeline.get(`user:${id}`);
+pipeline.get(`user:${id}:prefs`);
+const results = await pipeline.exec();
+
+// ❌ BAD - multiple round-trips
+const user = await redis.get(`user:${id}`);
+const prefs = await redis.get(`user:${id}:prefs`);
+```
+
+## Connection and ops
+
+- **Connection**: Config from env (`REDIS_URL`); validate at startup. Use connection pooling or single client per process.
+- **Reconnection**: Handle `error` and `reconnect` events; retry with backoff. Close connection on app shutdown.
+- **Cluster mode**: Use when scaling; key hashing must match slot. Document cluster topology in README.
+
+## Patterns
+
+- **Lua scripts**: For atomic multi-key operations. Use `EVAL` or `SCRIPT LOAD` + `EVALSHA` for repeated scripts.
+- **Pub/Sub**: For real-time; separate client from cache client (blocking). Do not mix in same connection.
+
+## Monitoring and README
+
+- **Monitor**: Memory usage, hit rate, connected clients. Alert on eviction spikes.
+- **Backup**: Redis is ephemeral by design. For persistence use RDB snapshots or AOF; document which is enabled. Treat Redis as cache—source of truth lives elsewhere.
+- **README**: Document key prefixes, TTL policies, connection string format, persistence mode (if any), and restore procedure.
+
+## Checklist
+
+- [ ] Key naming: prefix, hierarchy, no spaces; TTL on all cache keys.
+- [ ] Pipelines for multi-command; SCAN not KEYS; no blocking commands in request path.
+- [ ] Auth and TLS in production; no sensitive data unencrypted.
+- [ ] Connection from env; handle reconnection; close on shutdown.

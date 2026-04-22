@@ -1,0 +1,76 @@
+---
+description: Next.js security, CI, monitoring, deployment, patterns
+globs: "**/*.tsx,**/*.ts,**/*.jsx,**/*.js,next.config.*,next.config.mjs,package.json"
+alwaysApply: false
+---
+
+# Next.js — Ops & Architecture (Part 5)
+
+## 29. Security
+
+- Sanitize inputs; validate API responses; prefer httpOnly cookies; CSRF if cookies.
+- No secrets in `NEXT_PUBLIC_`; CSP headers; SRI for third-party scripts.
+
+## 30. CI Pipeline
+
+Run: `lint`, `type-check`, `test`, `build`. Add: source maps for Sentry; Dependabot/Renovate; `npm audit`; bundle-size and Lighthouse checks.
+
+## 31. Monitoring
+
+Sentry, LogRocket, Datadog RUM for errors and performance.
+
+## 33. Feature Flags & Analytics
+
+- **Feature flags**: Env vars or remote (LaunchDarkly). Remove when stable.
+- **Analytics**: GA4, Plausible. Init in layout; respect consent. Disable in dev via env.
+
+## 34. Additional Patterns
+
+- **next/link**: Use `<Link href>` for internal nav; enables prefetch.
+- **URL search params**: `useSearchParams` for filters, shareable links.
+- **Breadcrumbs**: Shared component.
+- **File upload**: Progress, validation, error handling.
+- **Date/number**: `date-fns`, `Intl.NumberFormat`.
+- **Print**: `@media print`.
+- **Prefetch**: `queryClient.prefetchQuery` on Link hover.
+
+## 35. Deployment & Ops
+
+- **Vercel**: Connect repo; auto-detects Next.js.
+- **Docker**: Multi-stage (node build, node/nginx serve).
+- **Husky + lint-staged**: Pre-commit lint and format.
+- **PWA**: `@ducanh2912/next-pwa` or similar.
+
+## 36. Architecture Philosophy
+
+```
+UI → Components
+Logic → Hooks
+State → Redux
+Async → Saga
+Server Data → React Query
+Validation → Zod
+Networking → API Layer
+SEO → Metadata API
+Performance → Next.js Optimizations
+```
+
+One tool, one responsibility.
+
+## Debugging workflow
+
+When fixing bugs: reproduce → root cause → fix → regression test → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Run tests | `npm test` |
+| Lint | `next lint` or `npm run lint` |
+| Type-check | `tsc --noEmit` |
+| E2E | `npx playwright test` |
+| Commit | `fix(scope): [bug description]` then `test(scope): add regression for [bug]` |
+
+## Checklist
+
+- [ ] Security: no secrets in `NEXT_PUBLIC_`; httpOnly cookies; sanitize inputs; CSP/SRI.
+- [ ] CI: lint, type-check, test, build; Dependabot/Renovate; `npm audit`; source maps for Sentry.
+- [ ] Feature flags and analytics: env or remote; respect consent; disable in dev.

@@ -1,0 +1,172 @@
+---
+description: Python routes, validation, service pattern, error handling
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python — API & Services (Part 3)
+
+## Validation (Pydantic)
+
+- Validate **all** request input: body, path params, query. Use Pydantic models.
+- Use **Pydantic v2**: `model_validate`, `model_dump`, `e.errors()` (v1 used `parse`, `dict`, `e.errors()`).
+- Never trust client data. Use `model_validate` or FastAPI auto-validation.
+- **Pydantic vs custom**: Pydantic raises `pydantic.ValidationError` on parse failure. Define custom `RequestValidationError` (or use `ValidationError`) for domain validation; catch `pydantic.ValidationError` in Flask and return 400 with `e.errors()`.
+
+```python
+# schemas.py - requires: pip install email-validator for EmailStr
+from pydantic import BaseModel, EmailStr
+
+class CreateUserSchema(BaseModel):
+    email: EmailStr
+    name: str
+    role: str = "user"
+```
+
+**FastAPI** — Use schema as parameter; validation automatic; returns 422 with error details.
+**Flask** — `data = request.get_json()`; if `data is None` return 400. Then `CreateUserSchema.model_validate(data)`; catch `pydantic.ValidationError` and return 400 with `e.errors()`.
+
+## Service pattern
+
+Services hold business logic; no `request`/`response`. Return data or raise domain exceptions.
+
+```python
+# user/service.py
+class UserService:
+    def get_by_id(self, user_id: str) -> User | None:
+        return self.repo.get(user_id)
+
+    def create(self, data: CreateUserSchema) -> User:
+        if self.repo.exists_by_email(data.email):
+            raise ConflictError("Email already exists")
+        return self.repo.create(data.model_dump())
+```
+
+**Rules:** Thin routes; call service; map service exceptions to HTTP responses.
+
+## Error handling
+
+- Raise **specific** exceptions. Prefer built-in: `ValueError`, `KeyError`, `TypeError`.
+- Define custom: `NotFoundError`, `ValidationError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError` with HTTP status.
+- Catch narrowly; re-raise with `raise ... from e` when wrapping.
+- No bare `except:`; use `except Exception:` at minimum and log.
+
+```python
+# utils/errors.py
+class AppError(Exception):
+    def __init__(self, message: str, status_code: int = 500):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+class NotFoundError(AppError):
+    def __init__(self, msg: str = "Not found"):
+        super().__init__(msg, 404)
+
+class ValidationError(AppError):
+    def __init__(self, msg: str, errors: dict | None = None):
+        super().__init__(msg, 400)
+        self.errors = errors
+
+class ConflictError(AppError):
+    def __init__(self, msg: str = "Conflict"):
+        super().__init__(msg, 409)
+
+class UnauthorizedError(AppError):
+    def __init__(self, msg: str = "Unauthorized"):
+        super().__init__(msg, 401)
+
+class ForbiddenError(AppError):
+    def __init__(self, msg: str = "Forbidden"):
+        super().__init__(msg, 403)
+```
+
+```python
+# ✅ GOOD
+try:
+    user = user_service.get_by_id(user_id)
+    if not user:
+        raise NotFoundError("User not found")
+except NotFoundError as e:
+    return {"error": str(e)}, 404
+
+# ❌ BAD
+try:
+    user = user_service.get_by_id(user_id)
+except:
+    pass
+```
+
+## Global exception handlers
+
+Map `AppError` and subclasses to JSON responses. Catch `pydantic.ValidationError` for 400.
+
+**Flask:**
+```python
+@app.errorhandler(AppError)
+def handle_app_error(e: AppError):
+    return jsonify({"success": False, "message": str(e)}), e.status_code
+
+@app.errorhandler(pydantic.ValidationError)
+def handle_validation_error(e):
+    return jsonify({"success": False, "message": "Validation failed", "errors": e.errors()}), 400
+```
+
+**FastAPI:** Register with `app.add_exception_handler`:
+```python
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+def handle_app_error(request: Request, exc: AppError):
+    return JSONResponse(status_code=exc.status_code, content={"success": False, "message": str(exc)})
+
+app.add_exception_handler(AppError, handle_app_error)
+```
+
+## Route structure (Flask)
+
+```python
+# user/routes.py
+from flask import Blueprint, request, jsonify
+from app.user.service import UserService
+from app.user.schemas import CreateUserSchema
+
+bp = Blueprint("user", __name__, url_prefix="/api/v1/users")
+user_service = UserService()
+
+@bp.route("", methods=["POST"])
+def create_user():
+    data_raw = request.get_json()
+    if data_raw is None:
+        return jsonify({"success": False, "message": "Invalid JSON"}), 400
+    data = CreateUserSchema.model_validate(data_raw)
+    user = user_service.create(data)
+    return jsonify({"success": True, "data": user}), 201
+```
+
+## Route structure (FastAPI)
+
+```python
+# user/routes.py
+from fastapi import APIRouter, Depends
+from app.user.service import UserService
+from app.user.schemas import CreateUserSchema, UserResponse
+
+router = APIRouter(prefix="/users", tags=["user"])
+
+def get_user_service() -> UserService:
+    return UserService(repo=get_user_repo())  # Define dependency provider
+
+@router.post("", response_model=UserResponse)
+def create_user(data: CreateUserSchema, svc: UserService = Depends(get_user_service)):
+    return svc.create(data)
+```
+
+## Pagination
+
+- **Query params**: `page`, `limit` (or `offset`). Validate with Pydantic; cap `limit` (e.g. max 100).
+- Return `{"data": [...], "meta": {"total": N, "page": 1, "limit": 20}}`.
+
+## API deprecation
+
+- When deprecating endpoints, add headers: `Deprecation: true` and `Sunset: <date>` (RFC 8594).

@@ -1,0 +1,97 @@
+---
+description: Express testing, unit tests, integration tests, logging
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Quality (Part 5)
+
+## Logging
+
+- Use structured logging (Pino, Winston). Levels: error, warn, info, debug.
+- Log request id, method, path, status, duration. No PII (emails, tokens) in logs.
+- In production: log to stdout; no `console.log` for app logic.
+
+```ts
+logger.info({ reqId, method, path, statusCode, durationMs }, 'request completed');
+// ❌ console.log('User logged in:', user.email);
+```
+
+## Testing
+
+- **Unit**: Services and utils with mocks. Vitest or Jest.
+- **Integration**: Supertest; hit real routes; use test DB or transactions. Mock external APIs.
+- **Coverage**: Aim for ≥80% on services/utils; `npm run test:coverage`.
+- Co-locate: `user.service.test.ts` next to `user.service.ts` (or in `__tests__/`).
+
+**Unit test example** (Vitest — works for both .ts and .js):
+
+```ts
+// user.service.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { userService } from './user.service';
+vi.mock('../db/client');
+
+describe('userService', () => {
+  beforeEach(() => vi.clearAllMocks());
+  describe('findById', () => {
+    it('returns user when found', async () => {
+      const mockUser = { id: '1', email: 'a@b.com' };
+      const db = await import('../db/client');
+      db.query = vi.fn().mockResolvedValue({ rows: [mockUser] });
+      const result = await userService.findById('1');
+      expect(result).toEqual(mockUser);
+    });
+    it('returns null when not found', async () => {
+      const db = await import('../db/client');
+      db.query = vi.fn().mockResolvedValue({ rows: [] });
+      const result = await userService.findById('999');
+      expect(result).toBeNull();
+    });
+  });
+});
+```
+
+**Utils unit test:**
+
+```ts
+// utils/methods.test.ts
+import { describe, it, expect } from 'vitest';
+import { slugify } from './methods';
+describe('slugify', () => {
+  it('converts string to URL-safe slug', () => {
+    expect(slugify('Hello World!')).toBe('hello-world');
+  });
+});
+```
+
+**Vitest coverage threshold** (vitest.config.ts):
+```ts
+export default defineConfig({
+  test: {
+    coverage: { provider: 'v8', lines: 80, functions: 80, branches: 80 },
+  },
+});
+```
+
+**Integration test (Supertest):**
+
+```ts
+import request from 'supertest';
+import { app } from '../app';
+describe('GET /api/v1/users', () => {
+  it('returns 200 with users', async () => {
+    const res = await request(app).get('/api/v1/users').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+```
+
+## Regression tests & debugging
+
+- **Framework**: Vitest or Jest. Use `describe`, `it`, `expect`.
+- **Location**: Co-locate (`user.service.test.ts`) or `__tests__/` next to source.
+- **Commands**: `npm test` or `npm run test`; `npm run lint`; `npm run test:coverage`.
+- **Regression**: Add `it('handles [bug scenario] - regression for [bug]', ...)` that would have caught the bug. Test fails before fix, passes after.
+- **Verify**: Run `npm test` and `npm run lint` before commit.

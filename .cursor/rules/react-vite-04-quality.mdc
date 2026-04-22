@@ -1,0 +1,285 @@
+---
+description: React + Vite performance, SEO, images, accessibility, testing, linting
+globs: "**/*.tsx,**/*.jsx,**/*.ts,**/*.js"
+alwaysApply: false
+---
+
+# React + Vite — Quality (Part 4)
+
+## 17. Performance System
+
+Performance must be measurable and enforced.
+
+Key practices:
+- Code-splitting with `React.lazy` and route-based chunking.
+- Memoize heavy computations (`useMemo`, `useCallback`, `React.memo`).
+- Avoid unnecessary re-renders (proper keys, immutable updates).
+- Use web-worker for expensive background work (if needed).
+- Tree-shakeable imports and avoid large polyfills.
+
+Vite build manualChunks (see `vite.config.ts` in Part 1).
+
+Bundle budgets (CI): Use `rollup-plugin-visualizer` or `esbuild` size checks and fail CI if budget exceeded (example budgets: initial JS < 200KB gzipped).
+
+Lighthouse in CI: Run Lighthouse or PageSpeed checks and enforce thresholds:
+- Performance >= 90
+- Largest Contentful Paint < 2.5s
+- Interaction to Next Paint (INP) < 200ms
+
+## 18. SEO System
+
+For SPA SEO management use `react-helmet-async` and SSR prerender where needed.
+
+Install:
+
+```bash
+npm install react-helmet-async
+```
+
+Provider:
+
+```tsx
+import { HelmetProvider } from 'react-helmet-async'
+
+<HelmetProvider>
+  <App />
+</HelmetProvider>
+```
+
+Page example:
+
+```tsx
+import { Helmet } from 'react-helmet-async'
+
+export function SomePage() {
+  return (
+    <>
+      <Helmet>
+        <title>Page Title — Product</title>
+        <meta name="description" content="Short page description" />
+        <link rel="canonical" href="https://example.com/page" />
+        <meta property="og:title" content="OG Title" />
+        <meta property="og:description" content="OG Description" />
+        <meta name="twitter:card" content="summary_large_image" />
+      </Helmet>
+      {/* page content */}
+    </>
+  )
+}
+```
+
+Additional SEO notes:
+- Server-side render (SSR) or Static Generation (SSG) for important landing pages. Use tools like Vercel / Astro / Next if SEO-critical.
+- Generate `sitemap.xml` and `robots.txt` in CI.
+- Use structured data (JSON-LD) for rich results.
+- Ensure pages have descriptive `<title>` and `<meta description>` and canonical links.
+
+## 19. Image Optimization
+
+- Prefer AVIF/WebP for production.
+- Use `loading="lazy"`.
+- Use `srcset` and responsive sizes.
+- Consider an image CDN (Cloudflare Images, Imgix, etc.).
+- Compress images during CI or as part of asset pipeline.
+
+Example:
+
+```html
+<img loading="lazy" src="/images/hero.avif" alt="..." width="1200" height="600" />
+```
+
+## 20. Accessibility (A11y)
+
+- Semantic HTML.
+- Keyboard navigation.
+- ARIA where necessary.
+- Color contrast checks.
+- Test with axe and Lighthouse.
+
+Example:
+
+```tsx
+<button aria-label="Close dialog">×</button>
+```
+
+### 20a. Semantic Tags
+
+Use semantic elements instead of generic `div`/`span` where meaning exists:
+
+| Element | Use |
+|---------|-----|
+| `<header>` | Site or section header (logo, nav) |
+| `<main>` | Primary page content (one per page) |
+| `<nav>` | Navigation links |
+| `<article>` | Self-contained content (post, card) |
+| `<section>` | Thematic grouping with heading |
+| `<aside>` | Tangential content (sidebar) |
+| `<footer>` | Site or section footer |
+| `<figure>` + `<figcaption>` | Images/charts with captions |
+| `<h1>`–`<h6>` | Heading hierarchy (no skips) |
+
+Landmark structure example:
+
+```tsx
+<>
+  <header><nav>...</nav></header>
+  <main>
+    <article>
+      <h1>Title</h1>
+      <section>...</section>
+    </article>
+  </main>
+  <aside>...</aside>
+  <footer>...</footer>
+</>
+```
+
+### 20b. Component Accessibility
+
+- **Buttons**: Use `<button>` for actions; avoid `div` with `onClick`. Add `aria-label` if label is only visual (e.g. icon-only).
+- **Links**: Use `<a href>` for navigation; `button` for actions that don’t change URL.
+- **Forms**: Always pair `<label htmlFor={id}>` with inputs; use `aria-describedby` for helper text and `aria-invalid` for errors.
+- **Images**: Provide meaningful `alt`; use `alt=""` for decorative images.
+- **Modals/Dialogs**: Use `role="dialog"`, `aria-modal`, `aria-labelledby`, `aria-describedby`; trap focus; restore focus on close.
+- **Lists**: Use `<ul>`/`<ol>` with `<li>` for lists, not `div`s.
+- **Custom controls**: Mirror native semantics (ARIA `role`, `aria-expanded`, `aria-pressed`, etc.) and keyboard support (Enter, Space, Arrow keys).
+
+Focus management: ensure focus moves logically; trap focus in modals; restore focus on close.
+
+### 20c. Automated A11y Tests
+
+Use `jest-axe` or `@axe-core/react` in component tests. Catch violations early.
+
+```ts
+import { axe, toHaveNoViolations } from 'jest-axe'
+expect.extend(toHaveNoViolations)
+
+test('Button has no a11y violations', async () => {
+  const { container } = render(<Button>Submit</Button>)
+  const results = await axe(container)
+  expect(results).toHaveNoViolations()
+})
+```
+
+### 20d. Layout Shift (CLS)
+
+Reserve space for dynamic content. Use `min-height` or skeleton with same dimensions as final content. Avoid inserting content above existing content. Set `width` and `height` on images to prevent reflow.
+
+### 20e. Virtualization
+
+For long lists (100+ items), use `react-window`, `@tanstack/react-virtual`, or `react-virtualized`. Render only visible items. Improves performance and scroll smoothness.
+
+## 21. Testing
+
+- Unit + component tests: Vitest + React Testing Library.
+- Integration: use MSW to mock APIs.
+- E2E: Playwright (recommended) or Cypress.
+
+Example unit test:
+
+```ts
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import Button from './Button'
+
+test('button renders', () => {
+  render(<Button>Click</Button>)
+  expect(screen.getByText('Click')).toBeInTheDocument()
+})
+```
+
+## 21b. MSW Setup
+
+Install `msw`. Create handlers in `src/mocks/handlers.ts` and server in `src/mocks/server.ts`. Use `server.listen()` in `setupTests.ts` (or vitest setup file). Structure handlers by endpoint; reuse for unit and E2E where possible.
+
+```ts
+// mocks/handlers.ts
+import { http, HttpResponse } from 'msw'
+
+export const handlers = [
+  http.get('/api/users', () => HttpResponse.json([{ id: '1', name: 'Test' }]))
+]
+```
+
+## 21c. E2E Structure (Playwright)
+
+```
+e2e/
+├─ fixtures/
+├─ tests/
+│  ├─ auth.spec.ts
+│  └─ dashboard.spec.ts
+├─ playwright.config.ts
+└─ global-setup.ts
+```
+
+Use Page Object pattern for complex flows. Run `npx playwright test` in CI.
+
+## 21d. Coverage Thresholds
+
+Vitest coverage in `vitest.config.ts`:
+
+```ts
+coverage: {
+  provider: 'v8',
+  reporter: ['text', 'lcov'],
+  thresholds: {
+    lines: 70,
+    functions: 70,
+    branches: 65
+  }
+}
+```
+
+## 21e. Test Fixtures
+
+Store mock data in `tests/fixtures/` or `src/mocks/fixtures/`. Export factories (e.g. `createUser(overrides)`) for flexible test data. Keep fixtures aligned with Zod schemas.
+
+## 21f. Component Test Patterns
+
+- Prefer `getByRole`, `getByLabelText` over `getByTestId`.
+- Use `userEvent` over `fireEvent` for interactions.
+- For async: `waitFor`, `findBy*` queries.
+- Wrap with necessary providers (Redux, QueryClient, Router) in custom `render` helper.
+
+## 21g. Regression tests & debugging
+
+- **Framework**: Vitest + React Testing Library.
+- **Location**: Co-locate `*.test.tsx` or `**/__tests__/*.test.tsx`; E2E in `e2e/tests/*.spec.ts`.
+- **Commands**: `npm test` or `npm run test`; `npm run lint`; `npm run type-check`.
+- **Regression**: Add `test('handles [bug scenario] - regression', ...)` that would have caught the bug.
+- **Verify**: `npm test` and `npm run lint` pass before commit.
+
+## 22. Linting & Formatting
+
+`.eslintrc.cjs` (example):
+
+```js
+module.exports = {
+  root: true,
+  env: { browser: true, es2021: true },
+  extends: [
+    'eslint:recommended',
+    'plugin:react/recommended',
+    'plugin:react-hooks/recommended',
+    'prettier'
+  ],
+  rules: {
+    'react/react-in-jsx-scope': 'off',
+    'no-console': ['warn', { allow: ['warn', 'error'] }]
+  }
+}
+```
+
+`.prettierrc`:
+
+```json
+{
+  "semi": false,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100
+}
+```
+
+Run `lint` and `format` in pre-commit hooks (see Part 5 — Husky).

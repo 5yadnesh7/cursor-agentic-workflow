@@ -1,0 +1,114 @@
+---
+description: Express scripts, CI, Docker, monitoring, optional features, checklist
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Ops (Part 6)
+
+## Scripts and CI
+
+- `npm run dev`: ts-node-dev or nodemon.
+- `npm run build`: tsc.
+- `npm run start`: node dist/server.js.
+- `npm run test`, `npm run test:coverage`.
+- CI: lint, type-check, test, build.
+- **Dependency hygiene**: `npm audit`; fix critical/high. Dependabot or Renovate; pin versions.
+
+## Docker (optional)
+
+- Multi-stage: build stage (npm ci, tsc), run stage (node dist).
+- `.dockerignore` for node_modules.
+- Do not run as root. Health check in Dockerfile or compose.
+
+## Monitoring and observability
+
+- Expose metrics (Prometheus) or use APM (Datadog, New Relic).
+- Correlate logs with request id for tracing.
+
+## API docs (Swagger / OpenAPI YAML)
+
+Maintain `openapi.yaml` or `swagger.yaml` in repo; serve via swagger-ui.
+
+**Minimal openapi.yaml:**
+```yaml
+openapi: 3.0.3
+info:
+  title: My API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string }
+      responses:
+        '201':
+          description: Created
+```
+
+**Express:** Use `swagger-ui-express` + load YAML:
+```js
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+const spec = YAML.load('./openapi.yaml');
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(spec));
+```
+Or `swagger-jsdoc` to generate spec from JSDoc comments. Keep `openapi.yaml` in `docs/` or project root.
+
+## Optional but recommended
+
+- **Response compression**: `app.use(require('compression'))` for gzip.
+- **Request timeout**: `server.setTimeout(30000)` or timeout middleware.
+- **Repository layer**: `moduleName.repository.ts` between service and DB.
+- **Idempotency**: `Idempotency-Key` header for critical POST/PUT.
+- **API docs**: OpenAPI/Swagger for public/partner APIs.
+- **.gitignore**: `.env`, `node_modules`, `dist`, `coverage`, `.DS_Store`.
+- **Caching**: Redis; set TTL; invalidate on writes.
+- **Background jobs**: BullMQ, Bull, Agenda.
+- **File uploads**: multer; size limit; allowed MIME types; store outside app dir.
+- **Request correlation**: Propagate `X-Request-Id` to outgoing HTTP calls.
+- **Circuit breakers**: opossum, cockatiel for external APIs.
+- **Retries**: Backoff for idempotent calls; cap retries.
+
+## Debugging workflow
+
+When fixing bugs (semantic debugging): reproduce → root cause → fix → regression test → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Run tests | `npm test` or `npm run test` |
+| Run lint | `npm run lint` |
+| Type-check | `tsc --noEmit` or `npm run type-check` |
+| Commit | `fix(scope): [bug description]` then `test(scope): add regression for [bug]` |
+
+Regression test: add in same file or adjacent `*.test.ts`; use Vitest/Jest. Ensure test passes after fix.
+
+## Best-practice checklist
+
+- [ ] **Env**: Config from env; `.env.example`; validate at startup; no secrets in code.
+- [ ] **Errors**: asyncHandler; central error middleware; consistent shape; custom error classes with statusCode.
+- [ ] **Validation**: body, params, query; schema + validate middleware; 400 with errors.
+- [ ] **Security**: Helmet, CORS, rate limit, body limit, trust proxy; auth middleware; no PII in logs.
+- [ ] **Logging**: Structured; request id; audit; no `console.log`.
+- [ ] **DB**: Parameterized queries; transactions; connection pool; close on shutdown.
+- [ ] **Process**: unhandledRejection, uncaughtException; graceful shutdown.
+- [ ] **API**: Version prefix; health/ready; pagination conventions; apiResponseTemplate.
+- [ ] **Structure**: Module-based; thin controllers; logic in services.
+- [ ] **Testing**: Unit tests ≥80%; integration tests; mock external APIs.
+- [ ] **Auth**: JWT expiry; bcrypt/argon2 for passwords; no PII in tokens.
+- [ ] **Optional**: Compression; timeout; caching; jobs; file upload limits; correlation; circuit breakers; retries.

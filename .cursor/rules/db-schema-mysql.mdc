@@ -1,0 +1,101 @@
+---
+description: MySQL and MariaDB schema and migration standards
+globs: "**/migrations/**/*.sql,**/migrations/**/*.js,**/*mysql*,**/*mariadb*,**/prisma/**/*.prisma,**/*typeorm*"
+alwaysApply: false
+---
+
+# MySQL / MariaDB Standards
+
+## Migrations
+
+- **One logical change per migration.** Never edit applied migrations.
+- Use **InnoDB** engine. Charset `utf8mb4` and collation `utf8mb4_unicode_ci` for full Unicode.
+- Include `IF EXISTS` / `IF NOT EXISTS` in down migrations where supported.
+- Name: `YYYYMMDDHHMMSS_descriptive_name.sql`.
+
+```sql
+-- ✅ GOOD
+CREATE TABLE users (
+  id CHAR(36) PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_users_email (email),
+  KEY idx_users_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ❌ BAD - no charset, no engine
+CREATE TABLE users (id INT, email VARCHAR(255));
+```
+
+## Naming
+
+- **Tables:** `snake_case`; plural optional but consistent.
+- **Columns:** `snake_case`. Primary key: `id`. Foreign keys: `{table}_id`.
+- **Indexes:** `idx_{table}_{columns}`. Unique: `uq_{table}_{columns}`.
+- Avoid MySQL reserved words: `order`, `group`, `key`, `index`, etc. Use backticks if unavoidable.
+
+## Keys and constraints
+
+- **Primary key on every table.** Prefer `CHAR(36)` for UUID or `BIGINT AUTO_INCREMENT`.
+- Foreign keys with explicit `ON DELETE` and `ON UPDATE`. Index all FK columns.
+- Use `UNSIGNED` for id columns when using `AUTO_INCREMENT`.
+- For UUID: `CHAR(36)` or `BINARY(16)`; ensure consistent format.
+
+```sql
+-- ✅ GOOD
+CREATE TABLE orders (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id CHAR(36) NOT NULL,
+  status ENUM('pending','paid','shipped') NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  KEY idx_orders_user_id (user_id),
+  KEY idx_orders_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+## Queries and application code
+
+- **Parameterized queries only.** Use `?` placeholders or named params. Never concatenate user input.
+- No `SELECT *` in application code; list columns.
+- Use `LIMIT` with `OFFSET` for pagination; consider cursor-based for large datasets.
+- Wrap multi-statement operations in transactions when consistency is required. Set isolation level explicitly when needed (`READ COMMITTED`, `REPEATABLE READ`, `SERIALIZABLE`).
+
+```sql
+-- ✅ GOOD
+SELECT id, email FROM users WHERE id = ?;
+INSERT INTO orders (user_id, status) VALUES (?, ?);
+
+-- ❌ BAD
+SELECT * FROM users WHERE id = ' + id + ';
+```
+
+## Data types
+
+- Timestamps: `TIMESTAMP` or `DATETIME`; be aware of timezone handling. Prefer storing UTC.
+- Strings: `VARCHAR(n)` with limits; `TEXT` for long content.
+- Money: `DECIMAL(19,4)`; never `FLOAT`/`DOUBLE`.
+- Booleans: `TINYINT(1)` or `BOOLEAN` (alias for TINYINT(1)).
+
+## Security
+
+- **No PII in logs**: Never log raw IDs, emails, or sensitive fields. Log counts or hashed identifiers only when needed.
+
+## Connection and ops
+
+- **Config from env**: `DATABASE_URL` or `DB_HOST`, `DB_USER`, etc. Never hardcode credentials.
+- **Connection pooling**: Use pool; set `min`/`max` appropriately. Close pool on app shutdown.
+- **Soft delete**: Add `deleted_at TIMESTAMP NULL`; filter with `WHERE deleted_at IS NULL`. Index for performance.
+
+## Query tuning and README
+
+- **EXPLAIN**: Use `EXPLAIN` or `EXPLAIN ANALYZE` to verify index usage. Avoid full table scans.
+- **README**: Document migration tool, connection format, backup/restore procedure.
+
+## Checklist
+
+- [ ] InnoDB, utf8mb4; parameterized queries only; no SELECT *; no PII in logs.
+- [ ] PK on every table; FK with ON DELETE/UPDATE; index FK columns.
+- [ ] Connection from env; pool; close on shutdown. EXPLAIN for slow queries.

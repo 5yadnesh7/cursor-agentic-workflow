@@ -1,0 +1,447 @@
+---
+description: React + Vite core stack, init, folder structure, config, TypeScript, routing
+globs: "**/*.tsx,**/*.jsx,**/*.ts,**/*.js,vite.config.ts,vite.config.js,tsconfig.json,jsconfig.json"
+alwaysApply: false
+---
+
+# React + Vite — Core (Part 1)
+
+Goals: Consistent architecture, predictable patterns, runtime safety (Zod), scalable state (Redux + Saga), server caching (React Query), SEO, performance.
+
+## 1. Core Stack
+
+- React, TypeScript, Vite
+- React Router, Redux Toolkit, Redux Saga
+- TanStack React Query, Zod, React Hook Form
+- Axios, Vitest, Testing Library, MSW
+- ESLint, Prettier
+
+## 2. Project Initialization
+
+### 2a. Create project
+
+```bash
+npm create vite@latest my-app
+```
+
+Choose: **React** + **TypeScript** or **JavaScript**. Then:
+
+```bash
+cd my-app
+```
+
+### 2b. Install runtime dependencies
+
+```bash
+npm install react-router-dom axios zod react-hook-form @hookform/resolvers
+npm install @reduxjs/toolkit redux redux-saga
+npm install @tanstack/react-query clsx date-fns react-helmet-async react-error-boundary
+```
+
+### 2c. Install dev dependencies
+
+```bash
+npm install -D eslint prettier eslint-plugin-react eslint-plugin-react-hooks
+npm install -D eslint-plugin-import eslint-config-prettier
+npm install -D vitest @testing-library/react @testing-library/user-event jsdom
+npm install -D msw rollup-plugin-visualizer jest-axe
+```
+
+### 2d. Tailwind (optional)
+
+```bash
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+### 2e. Common scripts
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "type-check": "tsc --noEmit",
+    "test": "vitest"
+  }
+}
+```
+
+## 3. Folder Structure
+
+Use a feature-based architecture:
+
+```
+src/
+├─ app/
+│  ├─ router/
+│  ├─ providers/
+│  └─ store/
+│
+├─ features/
+│  ├─ auth/
+│  │  ├─ components/
+│  │  ├─ hooks/
+│  │  ├─ api/
+│  │  ├─ authSlice.ts
+│  │  ├─ authSaga.ts
+│  │  └─ types.ts
+│  └─ dashboard/
+│
+├─ shared/
+│  ├─ components/
+│  ├─ hooks/
+│  ├─ utils/
+│  ├─ constants/
+│  └─ types/
+│
+├─ services/
+│  └─ apiClient.ts
+│
+├─ config/
+│  └─ env.ts
+│
+├─ seo/
+│  └─ seoConfig.ts
+│
+└─ main.tsx
+```
+
+Rules:
+- `features/` domain logic, components, API and tests per feature.
+- `shared/` small, well-reviewed UI primitives and hooks.
+- `services/` for global clients (axios, analytics).
+- `app/` for wiring (router, providers, root store).
+- `seo/` central SEO defaults and helpers.
+
+## 3a. Naming Conventions
+
+- **Components**: PascalCase (`UserProfile.tsx`, `DataTable.tsx`).
+- **Hooks**: `use` prefix, camelCase (`useDebounce.ts`, `useAuth.ts`).
+- **Utils / functions**: camelCase (`formatDate`, `getStoredToken`).
+- **Constants**: UPPER_SNAKE or `CONST_CASE` for true constants; object for grouped (`ROUTES`, `ENDPOINTS`).
+- **Types / interfaces**: PascalCase (`User`, `AuthState`).
+- **Files**: Match export — `PascalCase.tsx` for components, `camelCase.ts` for hooks/utils.
+
+## 3b. Barrel Exports
+
+Use barrel `index.ts` in `shared/` for clean imports. Avoid deep barrel chains that hurt tree-shaking. Prefer direct imports for large modules (`import { Button } from '@/shared/components/Button'` vs `import { Button } from '@/shared'`). Export only what consumers need.
+
+## 3c. Utils, Constants, Endpoints
+
+**Utils** (`shared/utils/`): Pure helper functions. One concern per file.
+
+```
+shared/utils/
+├─ format.ts      # date/number/currency formatters
+├─ cn.ts          # className merger (clsx/cva)
+├─ storage.ts     # localStorage/sessionStorage helpers
+└─ index.ts       # barrel export
+```
+
+Rules: Pure functions, no side effects, testable. Avoid React-specific logic here.
+
+Example `shared/utils/format.ts`:
+
+```ts
+import { format as fn } from 'date-fns'
+
+export function formatDate(date: Date | string, pattern = 'PPP') {
+  return fn(new Date(date), pattern)
+}
+```
+
+**Constants** (`shared/constants/`): App-wide constants and config.
+
+```
+shared/constants/
+├─ routes.ts      # path strings
+├─ keys.ts        # storage keys, config keys
+├─ limits.ts      # pagination, validation limits
+└─ index.ts
+```
+
+Example `shared/constants/routes.ts`:
+
+```ts
+export const ROUTES = {
+  HOME: '/',
+  LOGIN: '/login',
+  DASHBOARD: '/dashboard'
+} as const
+```
+
+**Endpoints** (`shared/constants/endpoints.ts` or `services/endpoints.ts`): Centralize API paths.
+
+```ts
+export const ENDPOINTS = {
+  AUTH: { LOGIN: '/auth/login', ME: '/auth/me' },
+  USERS: { LIST: '/users', BY_ID: (id: string) => `/users/${id}` }
+} as const
+```
+
+Use in feature API: `apiClient.post(ENDPOINTS.AUTH.LOGIN, payload)`.
+Import via `@/shared/constants` or `@/shared/utils` barrel files.
+
+## 3d. Responsive Design
+
+Mobile-first. Use CSS breakpoints (Tailwind: `sm`, `md`, `lg`, `xl`) or design tokens. Avoid fixed widths; use `max-width` and fluid layouts. Test on viewport ranges. Use `srcset` for images (see Part 4).
+
+## 3e. Theming / Dark Mode
+
+Store theme in Context or Redux. Use CSS variables (e.g. `--color-bg`, `--color-text`) and toggle class/attribute (`data-theme="dark"`) on `<html>`. Prefer `prefers-color-scheme` for initial load. Keep design tokens in one place.
+
+## 4. Vite Configuration
+
+`vite.config.ts`:
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom']
+        }
+      }
+    }
+  }
+})
+```
+
+Optional extra aliases in `tsconfig` and `vite.config`:
+
+```ts
+resolve: {
+  alias: {
+    '@': path.resolve(__dirname, './src'),
+    '@features': path.resolve(__dirname, './src/features'),
+    '@shared': path.resolve(__dirname, './src/shared'),
+    '@services': path.resolve(__dirname, './src/services')
+  }
+}
+```
+
+Benefits: clean imports, manual chunking for vendor caching.
+
+## 5. Environment Variables
+
+Vite requires `VITE_` prefix.
+
+`.env` example:
+
+```
+VITE_API_URL=https://api.example.com
+VITE_SENTRY_DSN=
+```
+
+Typed wrapper: `src/config/env.ts`
+
+```ts
+export const env = {
+  apiUrl: import.meta.env.VITE_API_URL ?? '',
+  sentryDsn: import.meta.env.VITE_SENTRY_DSN ?? ''
+}
+```
+
+Never commit sensitive values.
+
+## 6. TypeScript Rules
+
+`tsconfig.json` recommended flags:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "baseUrl": "src",
+    "paths": { "@/*": ["*"] }
+  }
+}
+```
+
+Rules:
+- Avoid `any`.
+- Use `zod` types where API contracts exist (or `io-ts` if preferred).
+- Keep types in `types.ts` or `feature/types.ts`.
+
+## 7. Routing
+
+`src/app/router/index.tsx`:
+
+```tsx
+import { createBrowserRouter } from 'react-router-dom'
+import Home from '@/features/home/HomePage'
+import Dashboard from '@/features/dashboard/Dashboard'
+
+export const router = createBrowserRouter([
+  { path: '/', element: <Home /> },
+  { path: '/dashboard', element: <Dashboard /> }
+])
+```
+
+Wrap in `RouterProvider` in `main.tsx`. Use route-level code-splitting with `React.lazy`.
+
+## 7b. Private / Protected Routes
+
+Use a wrapper component for routes that require auth. Redirect unauthenticated users to login.
+
+Example `shared/components/PrivateRoute.tsx`:
+
+```tsx
+import { Navigate, useLocation } from 'react-router-dom'
+import { useAppSelector } from '@/app/store'
+
+type Props = { children: React.ReactNode; redirectTo?: string }
+
+export function PrivateRoute({ children, redirectTo = '/login' }: Props) {
+  const { user } = useAppSelector(state => state.auth)
+  const location = useLocation()
+
+  if (!user) {
+    return <Navigate to={redirectTo} state={{ from: location }} replace />
+  }
+
+  return <>{children}</>
+}
+```
+
+Usage in router:
+
+```tsx
+{
+  path: '/dashboard',
+  element: (
+    <PrivateRoute>
+      <Dashboard />
+    </PrivateRoute>
+  )
+}
+```
+
+For role-based routes, extend with a `requiredRoles` prop and check user.role.
+
+## 7c. Providers Setup
+
+Wire all providers in `main.tsx`. Order matters: outer providers wrap inner.
+
+```tsx
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { RouterProvider } from 'react-router-dom'
+import { Provider } from 'react-redux'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { HelmetProvider } from 'react-helmet-async'
+import { store } from '@/app/store'
+import { router } from '@/app/router'
+
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1 } } })
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Provider store={store}>
+      <QueryClientProvider client={queryClient}>
+        <HelmetProvider>
+          <RouterProvider router={router} />
+        </HelmetProvider>
+      </QueryClientProvider>
+    </Provider>
+  </StrictMode>
+)
+```
+
+## 7d. Layouts & Outlet
+
+Root layout wraps all routes. Use `Outlet` for nested content.
+
+`app/layouts/RootLayout.tsx`:
+
+```tsx
+import { Outlet } from 'react-router-dom'
+import { Header } from '@/shared/components/Header'
+
+export function RootLayout() {
+  return (
+    <>
+      <Header />
+      <main><Outlet /></main>
+    </>
+  )
+}
+```
+
+Router with layout:
+
+```tsx
+{
+  element: <RootLayout />,
+  children: [
+    { path: '/', element: <Home /> },
+    { path: '/dashboard', element: <Dashboard /> }
+  ]
+}
+```
+
+## 7e. 404 & Error Boundary
+
+404 route: `{ path: '*', element: <NotFound /> }`.
+
+Error boundary wraps route tree or individual routes. Use `react-error-boundary`:
+
+```tsx
+import { ErrorBoundary } from 'react-error-boundary'
+
+function ErrorFallback({ error, resetErrorBoundary }) {
+  return (
+    <div role="alert">
+      <p>Something went wrong</p>
+      <button onClick={resetErrorBoundary}>Try again</button>
+    </div>
+  )
+}
+
+// Wrap router or layout
+<ErrorBoundary FallbackComponent={ErrorFallback}>
+  <RouterProvider router={router} />
+</ErrorBoundary>
+```
+
+## 7f. Lazy Loading & Suspense
+
+Code-split routes with `React.lazy` and wrap in `Suspense`:
+
+```tsx
+import { lazy, Suspense } from 'react'
+
+const Dashboard = lazy(() => import('@/features/dashboard/Dashboard'))
+const Home = lazy(() => import('@/features/home/HomePage'))
+
+const routes = [
+  { path: '/', element: <Suspense fallback={<PageLoader />}><Home /></Suspense> },
+  { path: '/dashboard', element: <Suspense fallback={<PageLoader />}><Dashboard /></Suspense> }
+]
+```
+
+Or wrap the whole router in a single Suspense boundary.
+
+## 7g. Internationalization (i18n)
+
+Use `react-i18next` with `i18next` and `i18next-browser-languagedetector`. Store translations in `public/locales/{lang}/common.json`. Initialize in `main.tsx` before render. Use `useTranslation()` in components. Keep keys flat and namespaced.

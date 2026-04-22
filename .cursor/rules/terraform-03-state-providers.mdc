@@ -1,0 +1,52 @@
+---
+description: Terraform state, backends, providers
+globs: "**/*.tf,**/*.tf.json"
+alwaysApply: false
+---
+
+# Terraform — State & Providers (Part 3)
+
+## State
+
+- **Remote state** (S3 + DynamoDB, GCS, or Terraform Cloud). Never commit `.tfstate` to git.
+- Enable **state locking** (DynamoDB for S3). Use `terraform init -backend-config=...` or `backend.hcl` to avoid hardcoding bucket/region.
+- Separate state per environment or use workspaces. Document state location in README.
+- **.gitignore**: `.terraform/`, `*.tfstate`, `*.tfstate.*`, `*.tfplan`, `*.tfvars` (if containing secrets). Commit `.terraform.lock.hcl` for reproducible provider versions.
+
+## Backend
+
+```hcl
+# versions.tf or main.tf
+terraform {
+  backend "s3" {
+    # Use -backend-config to avoid hardcoding: terraform init -backend-config="bucket=my-bucket" -backend-config="key=prod/terraform.tfstate"
+    bucket         = "my-terraform-state"
+    key            = "prod/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-lock"
+    encrypt        = true
+  }
+}
+```
+
+## Providers
+
+- **Pin provider versions** in `required_providers`. Avoid `>=` for production; use `~>` for minor updates.
+- Use `required_version` for Terraform itself.
+- Commit `.terraform.lock.hcl` for reproducible builds.
+- **Terraform Cloud**: Alternative backend; use for remote runs, VCS integration.
+- **Workspace in key**: `key = "env/${terraform.workspace}/terraform.tfstate"` for workspace-based state.
+
+```hcl
+# versions.tf
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+```

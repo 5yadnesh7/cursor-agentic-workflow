@@ -1,0 +1,130 @@
+---
+description: Python stack, init, type hints, imports, paths, functions, formatting
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python — Core (Part 1)
+
+## Stack and initialization
+
+- **Runtime**: Python 3.10+. Pin version in `.python-version` or `pyproject.toml`.
+- **Framework**: Flask or FastAPI for APIs. Pydantic for validation.
+- **Formatting**: Black. **Linting**: Ruff or flake8.
+- **Testing**: pytest; pytest-cov for coverage.
+
+```bash
+mkdir my-api && cd my-api
+python -m venv .venv
+source .venv/bin/activate   # or `.venv\Scripts\activate` on Windows
+pip install flask pydantic python-dotenv
+pip install -e ".[dev]"     # or: pip install pytest pytest-cov black ruff
+```
+
+## Type hints
+
+- Use **Python 3.10+** type hints for function signatures and key variables.
+- Use `list[X]`, `dict[K, V]` (not `List`, `Dict` from typing in 3.10+).
+- Optional: `X | None` or `Optional[X]`. Return types on public functions.
+
+```python
+# ✅ GOOD
+def get_user(user_id: str) -> User | None:
+    return db.session.query(User).filter(User.id == user_id).first()
+
+def create_order(items: list[OrderItem], customer_id: str) -> Order:
+    ...
+
+# ❌ BAD
+def get_user(user_id):
+    return db.session.query(User).filter(User.id == user_id).first()
+```
+
+## Imports and modules
+
+- Group imports: stdlib, third-party, local. Alphabetize within groups.
+- Use `from X import Y` when importing 1–2 names; `import X` for many.
+- No circular imports. Use dependency injection or lazy imports if needed.
+
+```python
+# ✅ GOOD
+import os
+from pathlib import Path
+
+from flask import Flask
+from sqlalchemy import create_engine
+
+from app.models import User
+from app.services import user_service
+```
+
+## Paths and files
+
+- Use **pathlib** for file paths. No `os.path` for new code.
+- Use context managers for file handles and resources.
+
+```python
+# ✅ GOOD
+from pathlib import Path
+config_path = Path(__file__).parent / "config.json"
+with open(config_path) as f:
+    config = json.load(f)
+
+# ❌ BAD
+import os
+path = os.path.join(os.path.dirname(__file__), "config.json")
+f = open(path)
+```
+
+## Functions and methods
+
+- No **mutable default arguments**. Use `None` and assign inside.
+- Single responsibility. Prefer pure functions when possible.
+- Docstrings for public functions: one line or full (Args, Returns, Raises).
+
+```python
+# ✅ GOOD
+def process(items: list[str] | None = None) -> list[str]:
+    items = items or []
+
+# ❌ BAD
+def process(items: list[str] = []):
+    ...
+```
+
+## Formatting and linting
+
+- **Black** for formatting. Line length 88 or 100 per project.
+- **Ruff** or **flake8** for linting. Fix all issues before commit.
+- Run in pre-commit or CI.
+
+```bash
+black .
+ruff check .
+ruff format .
+```
+
+**pre-commit** (optional):
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.0
+    hooks:
+      - id: ruff
+  - repo: https://github.com/psf/black
+    rev: 24.0.0
+    hooks:
+      - id: black
+```
+
+**mypy** (optional, in pyproject.toml):
+
+```toml
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+strict = true
+```

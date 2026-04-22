@@ -1,0 +1,153 @@
+---
+description: Terraform data sources, tagging, count/for_each, best practices
+globs: "**/*.tf,**/*.tf.json"
+alwaysApply: false
+---
+
+# Terraform — Patterns (Part 4)
+
+## Data sources
+
+- Use **data sources** for existing resources (VPC, AMIs, SSM) instead of hardcoding IDs.
+- Prefer `data` over hardcoded values for flexibility across accounts/regions.
+
+```hcl
+# ✅ GOOD
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+}
+
+resource "aws_instance" "app" {
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = var.instance_type
+  ...
+}
+```
+
+## Tagging
+
+- Tag all resources: `Environment`, `Project`, `ManagedBy = Terraform`.
+- Use a `locals` block for common tags; merge per resource. **locals**: Shared values; use for tags, computed strings.
+
+```hcl
+locals {
+  common_tags = {
+    Environment = var.env
+    Project     = var.project
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_instance" "app" {
+  tags = merge(locals.common_tags, { Name = "${var.env}-app" })
+}
+```
+
+## count and for_each
+
+- Use `count` or `for_each` for multiple similar resources; avoid copy-paste.
+- Prefer `for_each` over `count` when adding/removing items (avoids index shift issues).
+
+```hcl
+# ✅ GOOD - for_each
+resource "aws_security_group_rule" "ingress" {
+  for_each          = toset(var.allowed_ports)
+  type              = "ingress"
+  from_port         = each.value
+  to_port           = each.value
+  protocol          = "tcp"
+  cidr_blocks       = [var.cidr]
+  security_group_id = aws_security_group.main.id
+}
+```
+
+## Conditional resources
+
+- Use `count = var.enable_feature ? 1 : 0` or `for_each = var.enable_feature ? toset([1]) : toset([])`.
+
+```hcl
+resource "aws_cloudwatch_alarm" "cpu" {
+  count = var.enable_alerts ? 1 : 0
+  ...
+}
+```
+
+## Lifecycle
+
+- Use `lifecycle` for `create_before_destroy`, `prevent_destroy`, or `ignore_changes` when needed.
+
+```hcl
+resource "aws_db_instance" "main" {
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_instance" "app" {
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_instance" "app" {
+  lifecycle {
+    ignore_changes = [tags]
+  }
+}
+```
+
+## depends_on
+
+- Use `depends_on` for explicit dependencies when Terraform cannot infer them.
+
+```hcl
+resource "aws_instance" "app" {
+  depends_on = [aws_iam_role_policy_attachment.app]
+}
+```
+
+## Import and moved
+
+**import** (1.5+): Adopt existing resources. Run `terraform plan`; apply adds to state.
+```hcl
+import {
+  to = aws_instance.app
+  id = "i-1234567890abcdef0"
+}
+```
+
+**moved**: Refactor without recreate.
+```hcl
+moved {
+  from = aws_instance.old_name
+  to   = aws_instance.new_name
+}
+```
+
+## terraform_data and null_resource
+
+- Prefer `terraform_data` (1.4+) over `null_resource`. Avoid when native resources suffice.
+```hcl
+resource "terraform_data" "trigger" {
+  input = var.config_hash
+}
+```
+
+## dynamic blocks and for
+
+- Use `dynamic` for repeated nested blocks; `for` for list/map transforms.
+```hcl
+dynamic "ebs_block_device" {
+  for_each = var.extra_volumes
+  content {
+    device_name = ebs_block_device.value.device
+    volume_size = ebs_block_device.value.size
+  }
+}
+# [for x in aws_instance.app : x.public_ip]
+```

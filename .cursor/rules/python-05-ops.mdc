@@ -1,0 +1,130 @@
+---
+description: Python scripts, CI, Docker, security, optional features, checklist
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python — Ops (Part 5)
+
+## Scripts and CI
+
+- `python -m flask run` or `uvicorn main:app`.
+- `pytest`, `pytest --cov`.
+- CI: lint (ruff), type-check (mypy), test, build.
+- **Dependency hygiene**: `pip audit`; pin versions in `requirements.txt` or `pyproject.toml`. Use Dependabot.
+
+## Security
+
+- Never commit secrets. Use env vars.
+- **Password hashing**: bcrypt or passlib (argon2). Never plain text.
+- **JWT**: Use PyJWT or python-jose. Set expiry (`exp`); short-lived access tokens; no sensitive data in payload. Validate in middleware; attach `request.user`.
+- **SQL injection**: Use ORM (SQLAlchemy) or parameterized queries.
+- **CORS**: Configure allowed origins. Never `*` in production.
+- **Rate limiting**: Flask-Limiter or slowapi (FastAPI).
+- **Mask secrets in logs**: Never log tokens, passwords, API keys; redact if needed.
+
+## Monitoring and observability
+
+- Expose metrics (Prometheus) or use APM (Datadog, New Relic).
+- Correlate logs with request id for tracing.
+
+## Docker (optional)
+
+- Multi-stage: build stage (pip install), run stage (gunicorn/uvicorn).
+- Use `.dockerignore` for `__pycache__`, `.venv`, tests.
+- Do not run as root. Health check in Dockerfile.
+
+## Optional but recommended
+
+- **Database**: Alembic for migrations; connection pooling; **transactions** for multi-step writes; close on shutdown.
+- **API versioning**: Prefix `/api/v1/`.
+- **Health**: `GET /health`, `GET /health/ready` (check DB).
+- **Graceful shutdown**: Handle SIGTERM; close DB pool.
+- **Request correlation**: Propagate `X-Request-Id` to logs and outgoing HTTP calls.
+- **.gitignore**: `.env`, `__pycache__`, `.venv`, `*.pyc`, `.pytest_cache`, `.coverage`.
+- **Compression**: gzip middleware (Flask-Compress, Starlette GZipMiddleware).
+- **Background jobs**: Celery, RQ, or ARQ.
+- **File uploads**: Validate size and MIME; store outside app dir.
+- **Circuit breakers / retries**: tenacity, backoff for external API calls.
+- **Request timeout**: gunicorn `--timeout`, uvicorn `timeout_keep_alive`, or middleware.
+- **Idempotency**: `Idempotency-Key` header for critical POST/PUT; return cached response for duplicates.
+- **Caching**: Redis; TTL; invalidate on writes.
+- **API docs**: FastAPI has built-in OpenAPI. Flask: flasgger or apispec.
+
+## API docs (Swagger / OpenAPI YAML)
+
+Maintain `openapi.yaml` or `swagger.yaml` in repo.
+
+**Minimal openapi.yaml:**
+```yaml
+openapi: 3.0.3
+info:
+  title: My API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string }
+      responses:
+        '201':
+          description: Created
+```
+
+**FastAPI:** Auto-generates OpenAPI; optionally load custom spec:
+```python
+from fastapi.openapi.utils import get_openapi
+# Or serve static openapi.yaml at /openapi.json
+```
+
+**Flask (flasgger):** Load YAML from file:
+```python
+from flasgger import Swagger
+Swagger(app, template_file="openapi.yaml")
+# Serves /apidocs (Swagger UI) and uses openapi.yaml spec
+```
+Keep `openapi.yaml` in `docs/` or project root.
+
+## Debugging workflow
+
+When fixing bugs: reproduce → root cause → fix → regression test → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Run tests | `pytest` or `pytest --cov` |
+| Lint | `ruff check` or `ruff format --check` |
+| Type-check | `mypy .` (if used) |
+| Commit | `fix(scope): [bug description]` then `test(scope): add regression for [bug]` |
+
+Regression: add in `tests/`; use pytest. Ensure test passes after fix.
+
+## Best-practice checklist
+
+- [ ] **Env**: Config from env; `.env.example`; validate at startup; no secrets in code.
+- [ ] **Type hints**: 3.10+ syntax; return types on public functions.
+- [ ] **Imports**: Grouped; no circular imports.
+- [ ] **Paths**: pathlib; context managers for files.
+- [ ] **Errors**: Specific exceptions; custom AppError with status_code; no bare except.
+- [ ] **Structure**: Module-based; thin routes; logic in services.
+- [ ] **Validation**: Pydantic for body/params/query.
+- [ ] **Testing**: pytest; ≥80% coverage; unit + integration.
+- [ ] **Logging**: Structured; no PII; no print().
+- [ ] **Security**: Password hashing; JWT if auth; parameterized queries; CORS; rate limit; mask secrets in logs.
+- [ ] **DB**: Transactions for multi-step writes; close pool on shutdown.
+- [ ] **Formatting**: Black, Ruff; run in CI; pre-commit optional.
+- [ ] **Optional**: Monitoring; JWT; request correlation; timeout; idempotency; caching; compression; jobs; circuit breakers; retries; API docs.

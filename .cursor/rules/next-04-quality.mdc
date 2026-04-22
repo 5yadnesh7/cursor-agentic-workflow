@@ -1,0 +1,93 @@
+---
+description: Next.js performance, SEO, accessibility, testing, linting
+globs: "**/*.tsx,**/*.ts,**/*.jsx,**/*.js"
+alwaysApply: false
+---
+
+# Next.js — Quality (Part 4)
+
+## 24. SEO System
+
+Use metadata API. Every page defines `metadata`. Include OpenGraph, canonical, sitemap.xml, robots.txt, JSON-LD.
+
+```ts
+export const metadata = {
+  title: "Dashboard",
+  description: "User dashboard",
+  openGraph: { title: "...", description: "..." }
+}
+```
+
+## 25. Performance
+
+- **Code splitting**: Automatic per route.
+- **Image**: `next/image` with `width`, `height`, `alt`.
+- **Dynamic import**: `dynamic(() => import('./Chart'))`.
+- **Caching**: `force-cache`, `revalidate`, `no-store` on fetch.
+- **Memoization**: `useMemo`, `useCallback`, `React.memo`.
+- **Virtualization**: `@tanstack/react-virtual` or `react-window` for long lists.
+- **CLS**: Reserve space; skeleton matching content; image dimensions.
+
+## 30. Accessibility
+
+**Semantic tags:**
+
+| Element | Use |
+|---------|-----|
+| `<header>` | Site or section header |
+| `<main>` | Primary content (one per page) |
+| `<nav>` | Navigation links |
+| `<article>` | Self-contained content |
+| `<section>` | Thematic grouping |
+| `<aside>` | Sidebar / tangential |
+| `<footer>` | Site or section footer |
+
+- Semantic HTML; `aria-label` for icon buttons; `<label htmlFor>`; `aria-invalid`, `aria-describedby`.
+- `aria-label` for icon buttons; `<label htmlFor>`; `aria-invalid`, `aria-describedby`.
+- Keyboard nav; focus trap in modals; restore focus on close.
+- Color contrast; axe + Lighthouse.
+- `jest-axe` in component tests:
+
+```ts
+import { axe, toHaveNoViolations } from 'jest-axe'
+expect.extend(toHaveNoViolations)
+test('no a11y violations', async () => {
+  const { container } = render(<Button>Submit</Button>)
+  expect(await axe(container)).toHaveNoViolations()
+})
+```
+
+## 31. Testing
+
+Unit: Vitest + React Testing Library + `userEvent`. Prefer `getByRole`, `getByLabelText`.
+
+**MSW**: `src/mocks/handlers.ts`, `server.ts`; `server.listen()` in `vitest.setup.ts`. Use `@testing-library/jest-dom` for matchers.
+
+**E2E** (`e2e/`): `tests/`, `playwright.config.ts`, `global-setup.ts`. Page Object pattern.
+
+**Coverage** (`vitest.config.ts`):
+
+```ts
+coverage: { provider: 'v8', thresholds: { lines: 70 } }
+```
+
+**Fixtures**: `tests/fixtures/`; factories aligned with Zod schemas.
+
+## 32. Linting & Prettier
+
+ESLint: `next/core-web-vitals`, `prettier`. Prettier: semi: false, singleQuote, trailingComma: all.
+
+## Regression tests & debugging
+
+- **Framework**: Vitest + React Testing Library; E2E: Playwright.
+- **Location**: Co-locate `*.test.tsx` or `__tests__/`; E2E in `e2e/` or `tests/`.
+- **Commands**: `npm test`; `next lint` or `npm run lint`; `tsc --noEmit`.
+- **Regression**: Add `test('handles [bug scenario] - regression', ...)` that would have caught the bug.
+- **Verify**: `npm test` and `npm run lint` pass before commit.
+
+## Checklist
+
+- [ ] SEO: metadata API; OpenGraph; canonical; sitemap/robots.
+- [ ] Performance: `next/image`; dynamic import; virtualization for long lists; CLS prevention.
+- [ ] Accessibility: semantic tags; aria; keyboard; axe + Lighthouse.
+- [ ] Testing: Vitest + RTL; MSW for API; E2E with Playwright; coverage thresholds.

@@ -1,0 +1,36 @@
+---
+description: Express database, API versioning, pagination, health, graceful shutdown
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Database & API (Part 4)
+
+## Database and queries
+
+- **Parameterized queries only**. Never concatenate user input into SQL.
+- **Transactions** for multi-step writes; retry on deadlock if appropriate.
+- **Connection pooling**; close pool on shutdown.
+- **SQL/NoSQL injection**: Use ORM (Prisma, TypeORM, Sequelize) or parameterized queries. Avoid raw queries with user input; sanitize `$where` in NoSQL.
+
+## API versioning and base path
+
+- Prefix routes: `/api/v1/users`. Mount: `app.use('/api/v1', v1Router)`.
+- On breaking changes, add v2 and deprecate v1 with headers: `Deprecation: true` and `Sunset: <date>` (RFC 8594).
+
+## Pagination, sorting, filtering
+
+- **Query params**: `page`, `limit` (or `offset`); `sort=createdAt:desc`; filters as key-value.
+- Validate with Zod; cap `limit` (e.g. max 100). Return `{ data, meta: { total, page, limit } }`.
+
+## Health and readiness
+
+- **GET /health** or **GET /health/live**: 200 OK (for load balancer).
+- **GET /health/ready**: 200 if DB/cache reachable; 503 otherwise. Use for Kubernetes readiness.
+
+## Graceful shutdown
+
+- On SIGTERM/SIGINT: stop accepting new requests; finish in-flight; **close DB pool and other connections (e.g. Redis)**; then exit.
+- Use `server.close()`; wait; close DB pool; then `process.exit(0)`.
+- **Unhandled rejections**: `process.on('unhandledRejection', (reason) => { logger.error('Unhandled Rejection', reason); process.exit(1); })`
+- **Uncaught exception**: `process.on('uncaughtException', (err) => { logger.error('Uncaught Exception', err); process.exit(1); })`

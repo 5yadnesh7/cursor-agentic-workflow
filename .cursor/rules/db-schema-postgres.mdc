@@ -1,0 +1,131 @@
+---
+description: PostgreSQL schema and migration standards
+globs: "**/migrations/**/*.ts,**/migrations/**/*.js,**/migrations/**/*.sql,**/*postgres*,**/schema*.ts,**/schema*.js,**/prisma/**/*.prisma,**/prisma/**/*.ts,**/*typeorm*"
+alwaysApply: false
+---
+
+# PostgreSQL Standards
+
+## Migrations
+
+- **One logical change per migration.** Adding a table and an index = one migration. Never edit a migration that has been applied.
+- Migrations must be **reversible** (up and down) when supported by your tooling.
+- Name: `YYYYMMDDHHMMSS_descriptive_name.sql` or `001_create_users_table.sql`.
+- Run migrations in order; no branching that changes applied history.
+
+```sql
+-- ✅ GOOD - one migration
+-- 001_create_users_table.up.sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_users_email ON users(email);
+
+-- 001_create_users_table.down.sql
+DROP INDEX IF EXISTS idx_users_email;
+DROP TABLE IF EXISTS users;
+
+-- ❌ BAD - multiple unrelated changes in one migration
+CREATE TABLE users (...);
+CREATE TABLE orders (...);
+ALTER TABLE products ADD COLUMN ...;
+```
+
+## Naming
+
+- **Tables:** `snake_case`, plural optional but consistent (`users`, `order_items`).
+- **Columns:** `snake_case` (`created_at`, `user_id`, `is_active`).
+- **Primary keys:** `id` or `{table_singular}_id`. Prefer UUID or `bigserial`.
+- **Foreign keys:** `{referenced_table_singular}_id` (e.g. `user_id`, `order_id`).
+- **Indexes:** `idx_{table}_{columns}` or `idx_{table}_{columns}_{purpose}`.
+- **Constraints:** `chk_{table}_{column}` for checks, `uq_{table}_{columns}` for unique.
+
+```sql
+-- ✅ GOOD
+CREATE TABLE order_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id),
+  quantity INT NOT NULL CHECK (quantity > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_order_items_order_product UNIQUE (order_id, product_id)
+);
+CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+```
+
+## Keys and constraints
+
+- Every table has a primary key. Prefer **UUID** for distributed systems; `bigserial` for single-DB.
+- Foreign keys: define `ON DELETE` and `ON UPDATE`. CASCADE for strong ownership; RESTRICT for referenced data.
+- Index all FK columns used in JOINs and WHERE. Add composite indexes for frequent query patterns.
+- Use UNIQUE constraints for business uniqueness; use partial unique indexes for conditional uniqueness.
+
+```sql
+-- ✅ GOOD
+ALTER TABLE orders ADD CONSTRAINT fk_orders_user
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT;
+
+CREATE UNIQUE INDEX idx_users_email_active ON users(email) WHERE deleted_at IS NULL;
+
+-- ❌ BAD
+ALTER TABLE orders ADD COLUMN user_id INT;  -- No FK, no index
+```
+
+## Queries and application code
+
+- **Never `SELECT *`** in application code. List columns explicitly.
+- **Parameterized queries only.** Use `$1`, `$2` or ORM parameter binding. Never concatenate user input.
+- Use `LIMIT` and `OFFSET` (or cursor pagination) for large result sets.
+- Soft deletes: add `deleted_at TIMESTAMPTZ`; filter with `WHERE deleted_at IS NULL`. Partial index on `deleted_at` for active rows.
+
+```sql
+-- ✅ GOOD
+SELECT id, email, created_at FROM users WHERE id = $1;
+SELECT id, title FROM products WHERE category_id = $1 ORDER BY created_at DESC LIMIT 20 OFFSET 0;
+
+-- ❌ BAD
+SELECT * FROM users WHERE id = $1;
+SELECT * FROM products WHERE category_id = ' + categoryId + ';  -- SQL injection
+```
+
+## Transactions
+
+- Use transactions for multi-step operations that must succeed or fail together.
+- Keep transactions short; avoid long-running transactions that hold locks.
+- Set isolation level explicitly when needed (`READ COMMITTED`, `REPEATABLE READ`, `SERIALIZABLE`).
+- Handle deadlocks: retry with exponential backoff where appropriate.
+
+## Data types
+
+- Use `TIMESTAMPTZ` for all timestamps. Store UTC; convert for display.
+- Use `VARCHAR(n)` with sensible limits, or `TEXT` for unbounded. Prefer `TEXT` for flexibility.
+- Use `NUMERIC`/`DECIMAL` for money; never `FLOAT`.
+- Use `BOOLEAN` for flags; `JSONB` for semi-structured when needed.
+- Enums: PostgreSQL `CREATE TYPE` or check constraints. Be consistent.
+
+## Security
+
+- **No PII in logs**: Never log raw IDs, emails, or sensitive fields. Log counts or hashed identifiers only when needed.
+
+## Connection and ops
+
+- **Config from env**: `DATABASE_URL`. Never hardcode credentials.
+- **Connection pooling**: Use PgBouncer or app pool; set `min`/`max`. Close pool on app shutdown.
+- **Read replicas**: Route read-only queries to replicas when using replication. Use `SET TRANSACTION READ ONLY` for extra safety.
+
+## Query tuning and README
+
+- **EXPLAIN ANALYZE**: Verify index usage; avoid sequential scans on large tables.
+- **pg_stat_statements**: Enable for slow query analysis.
+- **VACUUM/ANALYZE**: Run regularly; consider `autovacuum` tuning for heavy workloads.
+- **README**: Document migration tool (Alembic, node-pg-migrate), connection format, backup/restore procedure.
+
+## Checklist
+
+- [ ] TIMESTAMPTZ; parameterized queries only; no SELECT *; reversible migrations; no PII in logs.
+- [ ] PK on every table; FK with ON DELETE/UPDATE; partial indexes for soft delete.
+- [ ] Connection from env; pool; close on shutdown. EXPLAIN ANALYZE for slow queries.

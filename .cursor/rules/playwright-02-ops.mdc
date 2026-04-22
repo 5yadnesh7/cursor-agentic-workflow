@@ -1,0 +1,99 @@
+---
+description: Playwright CI, debugging, linting, and operations
+globs: "**/*.spec.ts,**/*.spec.js,**/e2e/**/*,**/tests/**/*.spec.*,**/playwright.config.*,**/playwright/**/*.ts,.github/workflows/*playwright*"
+alwaysApply: false
+---
+
+# Playwright — Ops & Quality
+
+## Debugging
+
+- **Local:** Use VS Code extension for live debugging. Right-click test → "Debug Test." Use `--debug` flag: `npx playwright test --debug`.
+- **CI failures:** Use Trace Viewer, not only videos/screenshots. Open traces via HTML report: `npx playwright show-report`.
+- **Trace:** Run `npx playwright test --trace on` locally to record full traces. Configure `trace: 'on-first-retry'` in CI.
+- **Pause:** `await page.pause()` to open Inspector mid-test.
+- **UI Mode:** `npx playwright test --ui` for watch mode, time-travel debugging, and pick locator.
+
+## CI/CD
+
+- Run tests on every PR/commit. Use GitHub Actions workflow or equivalent.
+- **Platform:** Prefer Linux on CI (faster, cheaper).
+- **Browser install:** Only install needed browsers:
+  `npx playwright install chromium --with-deps` (not all browsers).
+- **Sharding** for speed: `npx playwright test --shard=1/4`.
+- **Retries:** Set `retries: 1` (or 2) for CI; avoid high retries masking flakiness.
+- **Reports:** Publish HTML report and traces for failed runs.
+
+## Parallelism
+
+- Tests run in parallel by default (workers).
+- Within a file, tests run sequentially unless:
+  `test.describe.configure({ mode: 'parallel' });`
+- Use `--workers=4` (or config) to tune; avoid overloading CI.
+
+## Linting and type safety
+
+- Use **TypeScript** (`.ts`) for tests.
+- Enable ESLint with `@typescript-eslint/no-floating-promises` to catch missing `await`.
+- Run `tsc --noEmit` in CI for type checks.
+- Keep Playwright up to date: `npm install -D @playwright/test@latest`.
+
+## Test naming and execution
+
+- Descriptive names: `test('shows error when email is invalid', async ({ page }) => { ... });`
+- Use `test.describe` for grouping: `test.describe('Login flow', () => { ... });`
+- `test.skip()` / `test.fixme()` for conditional skip. Remove `test.only()` before commit — use for local focus.
+
+## Device and mobile emulation
+
+- Use `devices['iPhone 13']`, `devices['Pixel 5']`, etc. for responsive/mobile tests.
+- Add device projects in config: `{ name: 'mobile', use: { ...devices['iPhone 13'] } }`.
+
+## Accessibility (a11y)
+
+- Prefer `getByRole` and `getByLabel` — they align with how assistive tech perceives the page.
+- Use `expect(locator).toHaveRole()` for role assertions.
+- Consider `@axe-core/playwright` for automated a11y checks.
+- Avoid testing implementation (e.g. ARIA attributes directly) unless necessary.
+
+## Fixtures and test data
+
+- Store mock data in `e2e/fixtures/` or `tests/fixtures/`.
+- Use factories (e.g. `createUser(overrides)`) for flexible data.
+- Do not hardcode production-like credentials; use env or fixtures.
+
+## Visual regression
+
+- Use `toHaveScreenshot()` for visual snapshots.
+- For consistent results: same OS, same browser version. Run visual tests in CI with fixed environment.
+- Update snapshots with `--update-snapshots`; review diffs before committing.
+
+## Security
+
+- Add `playwright/.auth/` to `.gitignore` — storage state contains cookies/tokens.
+- Use env vars for secrets (API tokens, credentials); never commit them.
+
+## Debugging workflow (E2E bugs)
+
+When fixing E2E bugs: reproduce → root cause → fix → regression test → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Run E2E tests | `npx playwright test` |
+| Debug | `npx playwright test --debug` or `--trace on` |
+| Lint | `npm run lint`; `tsc --noEmit` |
+| Commit | `fix(scope): [bug description]` then `test(e2e): add regression for [bug]` |
+
+Regression: add new `test()` in `e2e/tests/*.spec.ts` (or `**/*.spec.ts`) that reproduces the bug and passes after fix. Use `test.step` for clarity. Ensure `npx playwright test` passes.
+
+## Checklist
+
+- [ ] Locators: role/label/text first; no brittle CSS/XPath; frameLocator for iframes.
+- [ ] Assertions: web-first, awaited; no manual `isVisible()`; use `expect.poll`/`toPass` for async.
+- [ ] Tests isolated; fixtures or beforeEach; setup project for auth; no third-party unmocked.
+- [ ] POM for complex flows; one feature per test; `test.step` for logical steps.
+- [ ] Config: `baseURL`, projects, `trace: 'on-first-retry'`, `retries`, timeouts.
+- [ ] Auth: setup project, storageState, `playwright/.auth` in .gitignore.
+- [ ] API tests via `request`; combine API setup + UI when beneficial.
+- [ ] CI: Linux; install only needed browsers; sharding; HTML report.
+- [ ] TypeScript; ESLint `no-floating-promises`; `tsc --noEmit` in CI.

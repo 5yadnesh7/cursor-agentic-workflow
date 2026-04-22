@@ -1,0 +1,113 @@
+---
+description: Python testing, logging
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python — Quality (Part 4)
+
+## Logging
+
+- Use **structlog** or standard **logging**. Levels: DEBUG, INFO, WARNING, ERROR.
+- Log request id, method, path, status, duration. No PII (emails, tokens) in logs.
+- In production: log to stdout; no `print()` for app logic.
+
+```python
+# ✅ GOOD
+logger.info("request_completed", req_id=req_id, method=method, path=path, status=200, duration_ms=50)
+
+# ❌ BAD
+print(f"User logged in: {user.email}")
+```
+
+## Testing
+
+- **Unit**: Services and utils with mocks. pytest.
+- **Integration**: Hit real routes; use test DB or fixtures. Mock external APIs.
+- **Coverage**: Aim for ≥80% on services/utils; `pytest --cov`.
+- Co-locate: `tests/test_user_service.py` or `tests/user/test_service.py`. **E2E**: Optional; real deps in test env.
+
+**Unit test example (pytest):**
+
+```python
+# tests/user/test_service.py
+import pytest
+from unittest.mock import Mock
+from app.user.service import UserService
+
+def test_get_by_id_returns_user():
+    repo = Mock()
+    repo.get.return_value = {"id": "1", "email": "a@b.com"}
+    svc = UserService(repo=repo)
+    result = svc.get_by_id("1")
+    assert result["email"] == "a@b.com"
+
+def test_get_by_id_returns_none():
+    repo = Mock()
+    repo.get.return_value = None
+    svc = UserService(repo=repo)
+    result = svc.get_by_id("999")
+    assert result is None
+```
+
+**Integration test (Flask):**
+
+```python
+# tests/test_user_routes.py
+def test_create_user(client):
+    res = client.post("/api/v1/users", json={"email": "a@b.com", "name": "A"})
+    assert res.status_code == 201
+    assert res.json["success"] is True
+```
+
+**Integration test (FastAPI):**
+
+```python
+def test_create_user(client):
+    res = client.post("/api/v1/users", json={"email": "a@b.com", "name": "A"})
+    assert res.status_code == 201
+    assert res.json()["success"] is True
+```
+
+**conftest.py (fixtures):**
+
+**Flask:**
+```python
+# tests/conftest.py
+import pytest
+from app import create_app
+
+@pytest.fixture
+def app():
+    return create_app()
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+```
+
+**FastAPI:**
+```python
+from fastapi.testclient import TestClient
+from app.main import app
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+```
+
+**pytest.ini / pyproject.toml:**
+
+```ini
+[tool.pytest.ini_options]
+addopts = "-v --cov=app --cov-report=term-missing --cov-fail-under=80"
+testpaths = ["tests"]
+```
+
+## Regression tests & debugging
+
+- **Framework**: pytest. Use `def test_...`; fixtures in `conftest.py`.
+- **Location**: `tests/test_<module>.py` or `tests/<module>/test_<name>.py`.
+- **Commands**: `pytest`, `pytest --cov`; lint: `ruff check` or `flake8`.
+- **Regression**: Add `def test_handles_[bug_scenario]_regression():` that would have caught the bug.
+- **Verify**: Run `pytest` and lint before commit.

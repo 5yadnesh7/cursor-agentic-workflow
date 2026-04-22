@@ -1,0 +1,219 @@
+---
+description: React + Vite custom hooks, component guidelines
+globs: "**/*.tsx,**/*.jsx,**/*.ts,**/*.js"
+alwaysApply: false
+---
+
+# React + Vite — Components & Hooks (Part 3)
+
+## 15. Custom Hooks
+
+Business logic belongs in hooks.
+
+Example `shared/hooks/useDebounce.ts`:
+
+```ts
+import { useState, useEffect } from 'react'
+
+export function useDebounce<T>(value: T, delay = 300) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return debounced
+}
+```
+
+Rules:
+- `use` prefix mandatory
+- Keep hooks pure and testable
+
+## 16. Component Guidelines
+
+- Functional components only (React.FC seldom needed).
+- Single responsibility principle.
+- Keep files < 200 LOC.
+- Extract side-effects to hooks.
+- Use presentational / container separation when complexity grows.
+- Use tailwind/css-modules or design system tokens.
+- Prefer semantic elements (`<header>`, `<main>`, `<nav>`, `<article>`, `<button>`, `<label>`) over generic `div`/`span` where meaning exists (see Part 4 — Accessibility).
+- Use `key` with stable, unique IDs for lists; avoid index when items are reordered, added, or removed.
+
+Example:
+
+```tsx
+type Props = { title: string }
+
+export function Card({ title }: Props) {
+  return <article className="card"><h2>{title}</h2></article>
+}
+```
+
+## 16b. Reusable Components
+
+Place in `shared/components/`. Design for composition and configurability.
+
+Rules:
+- Accept `children` or render props when layout varies.
+- Use clear, typed props; optional props with sensible defaults.
+- Variants via props (e.g. `variant: 'primary' | 'secondary'`) not separate components.
+- Document props in JSDoc or separate types file.
+- Export from `shared/components/index.ts` for clean imports.
+
+Example reusable `Button`:
+
+```tsx
+type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'primary' | 'secondary' | 'ghost'
+  size?: 'sm' | 'md' | 'lg'
+  isLoading?: boolean
+}
+
+export function Button({ variant = 'primary', size = 'md', isLoading, children, disabled, ...rest }: ButtonProps) {
+  return (
+    <button
+      className={clsx('btn', `btn-${variant}`, `btn-${size}`)}
+      disabled={disabled || isLoading}
+      {...rest}
+    >
+      {isLoading ? <Spinner /> : children}
+    </button>
+  )
+}
+```
+
+For complex reusable components (Modal, DataTable, FormField), colocate in `shared/components/` with sub-components or compound components when needed.
+
+## 16c. forwardRef
+
+Use `forwardRef` when the component must expose a DOM ref (e.g. inputs, custom buttons used with refs). Forward to the underlying native element.
+
+```tsx
+import { forwardRef } from 'react'
+
+export const Input = forwardRef<HTMLInputElement, InputProps>(
+  (props, ref) => <input ref={ref} {...props} />
+)
+```
+
+Use `useImperativeHandle` only when you need to expose a custom API (e.g. `focus()`, `scrollIntoView()`).
+
+## 16d. Error Boundary
+
+Shared `ErrorBoundary` with retry and fallback. Use for route or feature-level isolation.
+
+```tsx
+import { ErrorBoundary } from 'react-error-boundary'
+
+export function ErrorFallback({ error, resetErrorBoundary }) {
+  return (
+    <div role="alert">
+      <p>{error?.message}</p>
+      <Button onClick={resetErrorBoundary}>Retry</Button>
+    </div>
+  )
+}
+```
+
+## 16e. Loading & Skeleton
+
+Provide `PageLoader` (full-page) and `Skeleton` for content placeholders. Match skeleton layout to real content to avoid layout shift (CLS). Use for Suspense fallbacks and `isLoading` states.
+
+## 16f. Toast / Notification
+
+Use a provider (e.g. `react-hot-toast`, `sonner`, `notistack`). Wrap app with provider. Call `toast.success()`, `toast.error()` from sagas, mutations, or interceptors. Keep messages short and actionable.
+
+## 16g. Layout Primitives
+
+Shared `PageLayout`, `Sidebar`, `Header`, `Footer` in `shared/components/layout/`. PageLayout typically: header + main + optional sidebar. Use composition via `children` and slots (e.g. `header`, `sidebar`, `content`).
+
+## 16h. Empty State
+
+Dedicated component for "no data" / "no results". Accept `title`, `description`, optional `action` (CTA). Use when list/table is empty or search returns nothing.
+
+## 16i. Context Usage
+
+Use Context for: theme, locale, modal state, narrowly scoped UI state. Avoid for server data or global app state (prefer Redux/React Query). Keep context value stable (memoize) to avoid unnecessary re-renders. Prefer composition over deep context when possible.
+
+## 16j. Compound Components
+
+For Modal, Tabs, Accordion: expose sub-components (`Modal.Header`, `Modal.Body`, `Modal.Footer`) that share implicit context. Use `React.createContext` or `React.Children` + `cloneElement`. Keeps API flexible and composable.
+
+```tsx
+<Modal>
+  <Modal.Header title="Edit" />
+  <Modal.Body>...</Modal.Body>
+  <Modal.Footer><Button>Save</Button></Modal.Footer>
+</Modal>
+```
+
+## 17. CSS & Styling
+
+### 17a. Tailwind Setup
+
+`tailwind.config.js` — set content paths to scan for classes:
+
+```js
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: { extend: {} },
+  plugins: []
+}
+```
+
+Entry: `src/index.css` with `@tailwind base; @tailwind components; @tailwind utilities;`. Import in `main.tsx`.
+
+### 17b. Design Tokens
+
+Define spacing, typography, colors, radii, shadows in `tailwind.config.js` or CSS variables. Keep tokens in one place; reference in components.
+
+```js
+// tailwind.config.js
+theme: {
+  extend: {
+    colors: { primary: { 50: '...', 500: '...', 900: '...' } },
+    spacing: { 18: '4.5rem' },
+    borderRadius: { '4xl': '2rem' }
+  }
+}
+```
+
+Or CSS variables: `--color-primary`, `--spacing-md`, `--radius-lg`.
+
+### 17c. Global vs Scoped
+
+- **Global**: `src/index.css` or `src/app/global.css` — resets, base typography, CSS variables.
+- **Scoped**: Tailwind utility classes (preferred) or CSS Modules (`.module.css`) for component-specific styles. Avoid inline styles except for dynamic values.
+
+### 17d. Z-Index Scale
+
+Use a named scale to avoid conflicts. Example in Tailwind or CSS:
+
+```css
+:root {
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+}
+```
+
+### 17e. Breakpoints
+
+Tailwind defaults: `sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px. Extend in config if needed. Mobile-first: base styles for mobile, add `md:` and up for larger screens.
+
+### 17f. Animation & Transitions
+
+Define duration and easing tokens. Use Tailwind `transition-*`, `animate-*` or CSS custom properties. Prefer `prefers-reduced-motion: reduce` for accessibility.
+
+### 17g. Tailwind Conventions
+
+- Prefer utility classes over `@apply` in component CSS (better tree-shaking).
+- Use `cn()` (clsx + twMerge) to merge and override classes.
+- Extract repeated utility combos into components, not `@apply` blocks.
+- Avoid arbitrary values (`w-[137px]`) when a token exists.
+
+### 17h. CSS Modules (Alternative)
+
+File: `Component.module.css`. Import: `import styles from './Component.module.css'`. Use `className={styles.card}`. Names are auto-scoped.

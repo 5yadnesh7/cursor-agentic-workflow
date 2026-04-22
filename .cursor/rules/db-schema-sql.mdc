@@ -1,0 +1,78 @@
+---
+description: Generic SQL and cross-database patterns
+globs: "**/*.sql,**/migrations/**/*,**/prisma/**/*.prisma"
+alwaysApply: false
+---
+
+# Generic SQL Standards (ANSI / portable)
+
+## Portability
+
+- Prefer **ANSI SQL** when possible. Avoid DB-specific extensions unless required.
+- When using dialect-specific features (e.g. `RETURNING`, `UPSERT`), document and provide fallbacks for other DBs if multi-DB support is needed.
+- Use standard types: `INTEGER`, `VARCHAR(n)`, `TIMESTAMP`, `DECIMAL(p,s)`.
+
+## Naming
+
+- **snake_case** for tables and columns. Consistent across schema.
+- Primary keys: `id`. Foreign keys: `{referenced_table_singular}_id`.
+- Indexes: `idx_{table}_{columns}`. Constraints: descriptive names.
+
+## Data types (portable)
+
+- **Integers**: `INTEGER`, `BIGINT`. Use `UNSIGNED` where supported (MySQL).
+- **Decimals**: `DECIMAL(p,s)` for money; never `FLOAT`/`DOUBLE`.
+- **Strings**: `VARCHAR(n)` with limits; `TEXT` for long content.
+- **Timestamps**: `TIMESTAMP` or `DATETIME`; store in UTC. Use `TIMESTAMPTZ` when available (Postgres).
+- **Booleans**: `BOOLEAN` or `TINYINT(1)` per dialect.
+
+## Migrations
+
+- One logical change per migration. Include rollback (down migration) when tooling supports it.
+- Do not modify applied migrations. Add new migrations to alter schema.
+- Use **transactions** for migrations that alter data; ensure atomicity.
+
+## Query safety
+
+- **Parameterized queries only.** Use `?`, `$1`, `:name` per driver. Never concatenate or interpolate user input.
+- No `SELECT *` in application code; list columns explicitly.
+- Use explicit `JOIN` syntax; avoid comma-separated tables with WHERE for joins.
+- Meaningful table/column aliases: `u` for users, `o` for orders, etc.
+
+```sql
+-- ✅ GOOD
+SELECT u.id, u.email, o.total
+FROM users u
+INNER JOIN orders o ON o.user_id = u.id
+WHERE u.status = ? AND o.created_at >= ?;
+
+-- ❌ BAD
+SELECT * FROM users, orders WHERE users.id = orders.user_id AND users.status = 'active';
+```
+
+## Transactions
+
+- Use transactions for multi-step operations that must succeed or fail together.
+- Keep transactions short; avoid long-running transactions that hold locks.
+- Handle deadlocks: retry with exponential backoff where appropriate.
+- Set isolation level explicitly when needed (`READ COMMITTED`, `SERIALIZABLE`).
+
+## Security
+
+- **No PII in logs**: Never log raw IDs, emails, or sensitive fields. Log counts or hashed identifiers only when needed.
+
+## Connection and ops
+
+- **Config from env**: `DATABASE_URL`. Never hardcode credentials.
+- **Connection pooling**: Use pool; close on app shutdown.
+- **Soft delete**: Add `deleted_at`; filter with `WHERE deleted_at IS NULL`. Index for performance.
+
+## Query tuning and README
+
+- **EXPLAIN**: Use dialect-specific `EXPLAIN` to verify index usage. Avoid full table scans.
+- **README**: Document migration tool, connection format, backup/restore procedure.
+
+## Checklist
+
+- [ ] Parameterized queries only; no SELECT *; explicit JOINs; transactions for multi-step; no PII in logs.
+- [ ] snake_case; PK on every table; connection from env; pool; close on shutdown.

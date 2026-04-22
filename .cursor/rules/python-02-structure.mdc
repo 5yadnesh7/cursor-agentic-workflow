@@ -1,0 +1,101 @@
+---
+description: Python folder structure, config, env, naming conventions
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python — Structure (Part 2)
+
+## Folder structure
+
+Use **module-based** layout: each domain has its own package with service, routes, schemas.
+
+```
+src/
+├── main.py              # Entry: load env, create app, run server
+├── config/
+│   └── env.py           # Config from env; validate at startup
+├── app/
+│   ├── __init__.py
+│   ├── user/
+│   │   ├── __init__.py
+│   │   ├── routes.py    # Flask blueprint or FastAPI router
+│   │   ├── service.py   # Business logic
+│   │   └── schemas.py   # Pydantic models
+│   ├── auth/
+│   │   ├── routes.py
+│   │   ├── service.py
+│   │   └── schemas.py
+│   ├── db/
+│   │   ├── config.py    # DB connection, session
+│   │   ├── migrations/  # Alembic
+│   │   └── models/
+│   ├── repos/           # Optional: repository layer between service and DB
+│   └── utils/
+│       ├── errors.py    # Custom exceptions
+│       └── constants.py
+├── tests/
+│   ├── conftest.py
+│   └── ...
+└── pyproject.toml
+```
+
+**Per module:** schemas (Pydantic), service (business logic), routes (thin handlers). **Optional repos/**: Repository layer between service and DB for complex data access. Rules: One module per resource; thin routes; logic in services.
+
+## Configuration and environment
+
+- All config from **environment variables**. Use `python-dotenv`; load in entry.
+- **Never** commit `.env`. Provide `.env.example` with keys and dummy values.
+- Validate required vars at startup; fail fast if missing.
+
+```python
+# .env.example
+FLASK_APP=main
+DATABASE_URL=postgresql://user:pass@localhost:5432/db
+JWT_SECRET=your-secret-min-32-chars
+CORS_ORIGINS=https://app.example.com
+LOG_LEVEL=INFO
+PROJECT=my-api
+```
+
+```python
+# config/env.py
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+def get_config() -> dict:
+    config = {
+        "db_url": os.getenv("DATABASE_URL"),
+        "jwt_secret": os.getenv("JWT_SECRET"),
+        "project": os.getenv("PROJECT", "my-api"),
+    }
+    if not config["db_url"] or not config["jwt_secret"]:
+        raise ValueError("Missing required env vars: DATABASE_URL, JWT_SECRET")
+    return config
+```
+
+## README
+
+- Document: how to run (`pip install`, `flask run` / `uvicorn`), env vars (link to `.env.example`), API base path, project structure.
+
+## Naming conventions
+
+- **Packages/modules**: lowercase, underscores (`user_service`).
+- **Classes**: PascalCase (`UserService`, `CreateUserSchema`).
+- **Functions/variables**: lowercase, underscores (`get_user_by_id`).
+- **Constants**: UPPER_SNAKE (`MAX_PAGE_SIZE`).
+- **API routes**: plural resource (`/users`, `/orders`).
+
+**pyproject.toml (minimal):**
+
+```toml
+[project]
+name = "my-api"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["flask", "pydantic", "python-dotenv"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "black", "ruff"]
+```

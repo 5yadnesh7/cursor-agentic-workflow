@@ -1,0 +1,112 @@
+---
+description: Express routes, controller and service patterns, validation, schema
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Routes & Services (Part 2)
+
+## Route structure
+
+- Keep route handlers **thin**. Business logic in services.
+- One file per resource or route group; use `express.Router()` and mount: `app.use('/api/users', userRoutes)`.
+
+## Route file (moduleName.route.js)
+
+Define router with `mergeParams: true` if mounted under params (e.g. `/projects/:projectId/ai`). Use `router.use(authenticateUser)` and `validate(schema)` middleware.
+
+```js
+// modules/ai/ai.route.js
+const express = require('express');
+const router = express.Router({ mergeParams: true });
+const authenticateUser = require('../../middleware/apiUserAuthenticate');
+const validate = require('../../middleware/validationMiddleware');
+const { generateTestCaseSchema } = require('./ai.schema');
+const { generateTestCases } = require('./ai.controller');
+
+router.use(authenticateUser);
+router.post('/generateTestCase', validate(generateTestCaseSchema), generateTestCases);
+module.exports = router;
+```
+
+**Schema file (moduleName.schema.js):** Export Zod (or Joi) schemas. Validation middleware runs `schema.safeParse(req.body)`; on failure returns BadRequestError with `.error.flatten()`.
+
+**Rules:** One route file per module. Mount router in app (e.g. `app.use('/api/v1/projects/:projectId/ai', aiRoutes)`).
+
+## Controller pattern
+
+Export controller actions as `asyncHandler`-wrapped functions. Use request logger, try/catch, and **apiResponseTemplate** for all responses.
+
+```js
+// modules/ai/ai.controller.js
+const asyncHandler = require('../../utils/asyncHandler');
+const logger = require('../../logger');
+const { SuccessResponse, NotFoundError, InternalServerError } = require('../../utils/apiResponseTemplate');
+const aiService = require('./ai.service');
+
+exports.generateTestCases = asyncHandler(async (req, res) => {
+  const reqLogger = logger.createRequestLogger(req);
+  try {
+    const responseData = await aiService.generateTestCases(req);
+    return SuccessResponse(res, 'Test cases generated successfully', responseData);
+  } catch (error) {
+    reqLogger.error('Error generating test cases', error, { orgId: req.session?.user?.org_id });
+    if (error.message === 'AI model not found or unauthorized') return NotFoundError(res, 'AI model not found');
+    return InternalServerError(res, error);
+  }
+});
+```
+
+**Rules:** One exported function per route handler. In catch: log with context, map known errors to apiResponseTemplate, default `InternalServerError`.
+
+## Service pattern
+
+Services are **class-based**, hold business logic, export a **singleton instance**. Methods receive `req`; use `reqLogger.audit()` for start/success/fail. **Throw** errors with clear messages. Use **setImmediate** for non-blocking side effects; catch inside so they never affect the response.
+
+```js
+// modules/ai/ai.service.js
+class AIService {
+  async generateTestCases(req) {
+    const reqLogger = logger.createRequestLogger(req);
+    reqLogger.audit('GENERATE_TEST_CASES_START', req.session?.user, 'test_case_generation', { LLMId: req.body?.LLMId });
+    const aiModel = await this.getAIModelByLLMId(req);
+    // ... business logic
+    reqLogger.audit('GENERATE_TEST_CASES_SUCCESS', req.session?.user, 'test_case_generation', { ... });
+    return responseData;
+  }
+  logCostTrackingNonBlocking(req, usageInfo) {
+    setImmediate(async () => {
+      try { /* ... */ } catch (error) { logger.error('Failed to log cost tracking', error); }
+    });
+  }
+}
+module.exports = new AIService();
+```
+
+**Rules:** Export singleton: `module.exports = new AIService()`. Throw clear errors for controller to map.
+
+## Input validation and sanitization
+
+*Applies to both .ts and .js. Use Zod/Joi in either; omit type annotations in JS.*
+
+- Validate **body, params, query**. Use Zod, Joi, or express-validator before business logic.
+- Sanitize for XSS, SQL injection (parameterized queries only), path traversal.
+- **Schema per route**: Define in **moduleName.schema.js**; use **validate(schema)** middleware; return 400 with validation errors on failure.
+
+```ts
+// ✅ GOOD - Zod
+const createUserSchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100) });
+router.post('/users', asyncHandler(async (req, res) => {
+  const parsed = createUserSchema.safeParse(req.body);
+  if (!parsed.success) throw new ValidationError(parsed.error.flatten());
+  const user = await userService.create(parsed.data);
+  res.status(201).json({ success: true, data: user });
+}));
+
+// ❌ BAD - no validation
+router.post('/users', async (req, res) => {
+  const { email, name } = req.body;
+  const user = await db.insert({ email, name });
+  res.json(user);
+});
+```

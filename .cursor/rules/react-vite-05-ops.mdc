@@ -1,0 +1,169 @@
+---
+description: React + Vite security, CI, monitoring, architecture, scripts
+globs: "**/*.tsx,**/*.jsx,**/*.ts,**/*.js,vite.config.ts,vite.config.js,package.json"
+alwaysApply: false
+---
+
+# React + Vite — Ops & Architecture (Part 5)
+
+## 23. Security Practices
+
+- Sanitize user inputs.
+- Validate API responses.
+- Prefer httpOnly cookies for tokens.
+- Use CSRF protection if using cookies.
+- Do not store secrets in frontend envs.
+- Use CSP headers and SRI for third-party scripts where possible.
+
+## 23b. Environment Files
+
+Use per-environment files: `.env`, `.env.development`, `.env.staging`, `.env.production`. Vite loads by mode (`vite build --mode staging`). Never commit secrets; use CI secrets for prod. Example `.env.development`:
+
+```
+VITE_API_URL=http://localhost:3000/api
+VITE_ENABLE_MOCK=true
+```
+
+## 23c. Feature Flags
+
+Use local flags (env vars) or remote (LaunchDarkly, Flagsmith). Guard features: `if (flags.newDashboard) return <NewDashboard />`. Keep flag keys in constants. Remove flags once feature is stable.
+
+## 23d. Analytics
+
+Integrate GA4, Plausible, or similar. Initialize in `main.tsx` or layout. Track page views (router) and events (CTA clicks, conversions). Respect Do Not Track / consent. Use env var to disable in dev.
+
+## 23e. Source Maps
+
+Enable source maps in production for Sentry/error tracking. Vite: `build.sourcemap: true` or `'hidden'` (no public exposure). Upload to Sentry in CI. Use `hidden` if you don't want maps publicly accessible.
+
+## 23f. Dependency Updates
+
+Use Dependabot or Renovate for automated PRs. Pin major versions; allow minor/patch. Run `npm audit` in CI. Review breaking changes before merging.
+
+## 24. CI Pipeline & Budgets
+
+CI steps (example):
+1. `npm ci`
+2. `npm run lint`
+3. `npm run type-check`
+4. `npm run test -- --coverage`
+5. `npm run build`
+6. `run bundle-size-check` (fail if budget exceeded)
+7. `run lighthouse-ci` (fail thresholds)
+
+Example `package.json` scripts:
+
+```json
+{
+  "scripts": {
+    "lint": "eslint 'src/**/*.{ts,tsx,js,jsx}'",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}
+```
+
+## 25. Monitoring & Observability
+
+- Use Sentry / LogRocket for errors and session replay (opt-in).
+- Capture key performance metrics (LCP, FID/INP, TTI).
+- Send server-side logs and client errors to centralized monitoring.
+
+## 26. Architecture Philosophy
+
+Keep responsibilities clear:
+
+```
+UI         → Components
+Logic      → Hooks
+Validation → Zod
+State      → Redux (global)
+Server     → React Query (cache & background)
+Async      → Redux Saga (or sagas/epics)
+Network    → API Layer (Axios + typed contracts)
+SEO        → Helmet (and SSR/SSG for critical pages)
+Performance→ CI budgets & Lighthouse
+```
+
+One tool, one responsibility. When boundaries are maintained the codebase ages gracefully.
+
+## 27. Deployment
+
+Vite builds static assets to `dist/`. Deploy to:
+- Vercel / Netlify: connect repo, build command `npm run build`, output `dist`.
+- S3 + CloudFront: upload `dist`, set index and error doc to `index.html` for SPA routing.
+- Docker: multi-stage build (node for build, nginx for serve).
+
+## 28. Husky & Lint-Staged
+
+```bash
+npm install -D husky lint-staged
+npx husky init
+```
+
+`.husky/pre-commit`:
+
+```sh
+npx lint-staged
+```
+
+`package.json`:
+
+```json
+"lint-staged": {
+  "*.{ts,tsx}": ["eslint --fix", "prettier --write"]
+}
+```
+
+## 29. PWA / Offline
+
+Use `vite-plugin-pwa`. Generate service worker, precache assets. Add manifest. Configure for offline fallback if needed. Test installability and offline behavior.
+
+## 30. Docker (Optional)
+
+Multi-stage Dockerfile: stage 1 `node` — `npm ci`, `npm run build`; stage 2 `nginx` — copy `dist` from stage 1, serve. Use for self-hosted or Kubernetes deployments.
+
+## 31. Example Scripts & Commands
+
+Quick reference:
+
+```bash
+# dev
+npm run dev
+
+# lint
+npm run lint
+
+# test
+npm run test
+
+# build
+npm run build
+
+# preview production build
+npm run preview
+```
+
+## Debugging workflow
+
+When fixing bugs: reproduce → root cause → fix → regression test → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Run tests | `npm test` or `npm run test` |
+| Lint | `npm run lint` |
+| Type-check | `tsc --noEmit` or `npm run type-check` |
+| E2E | `npx playwright test` |
+| Commit | `fix(scope): [bug description]` then `test(scope): add regression for [bug]` |
+
+Regression: unit/component in `*.test.tsx`; E2E in `e2e/tests/*.spec.ts`. Ensure test passes after fix.
+
+## Checklist
+
+- [ ] Security: no secrets in frontend env; httpOnly cookies; sanitize inputs; CSP/SRI.
+- [ ] Env: `.env*` per environment; never commit secrets; CI secrets for prod.
+- [ ] CI: lint, type-check, test, build; bundle-size; Lighthouse thresholds; Dependabot/Renovate.
+- [ ] Source maps: enable for Sentry (hidden or full); upload in CI.
+- [ ] Husky + lint-staged for pre-commit.

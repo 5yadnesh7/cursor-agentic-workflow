@@ -1,0 +1,299 @@
+---
+description: Next.js App Router core stack, init, folder structure, config, TypeScript, routing
+globs: "**/*.tsx,**/*.ts,**/*.jsx,**/*.js,next.config.*,next.config.mjs,tsconfig.json,jsconfig.json"
+alwaysApply: false
+---
+
+# Next.js — Core (Part 1)
+
+Goals: Predictable architecture, strong runtime validation, excellent SEO, scalable structure, maintainable codebase.
+
+## 1. Core Technology Stack
+
+- Next.js (App Router), React, TypeScript
+- Redux Toolkit, Redux Saga
+- TanStack React Query
+- Zod, React Hook Form
+- Axios or native fetch
+- Vitest, React Testing Library, Playwright
+- ESLint, Prettier
+
+## 2. Project Initialization
+
+### 2a. Create project
+
+```bash
+npx create-next-app@latest my-app
+```
+
+When prompted:
+
+- TypeScript: **Yes**
+- ESLint: **Yes**
+- Tailwind CSS: **Yes** (recommended) or No
+- `src/` directory: **Yes**
+- App Router: **Yes**
+- import alias: `@/*` (default)
+
+### 2b. Install runtime dependencies
+
+```bash
+cd my-app
+
+npm install axios zod react-hook-form @hookform/resolvers
+npm install @reduxjs/toolkit redux redux-saga
+npm install @tanstack/react-query clsx date-fns react-error-boundary
+npm install tailwind-merge
+```
+
+### 2c. Install dev dependencies
+
+```bash
+npm install -D vitest @testing-library/react @testing-library/user-event @testing-library/jest-dom jsdom
+npm install -D eslint-plugin-import eslint-config-prettier
+npm install -D playwright msw jest-axe
+```
+
+### 2d. Tailwind (if not selected in create-next-app)
+
+```bash
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+### 2e. Common scripts
+
+Ensure `package.json` includes:
+
+```json
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest"
+  }
+}
+```
+
+## 3. Server vs Client vs API (Three Layers)
+
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| **API** | `app/api/` (Route Handlers) or external backend | HTTP endpoints; business logic; DB access; never exposed to client |
+| **Server Pages** | `app/**/page.tsx` without `'use client'` | Render on server; fetch data directly; no hooks; SEO-friendly; async |
+| **Client Pages** | Components with `'use client'` | Render in browser; hooks; event handlers; React Query; browser APIs |
+
+**When to use which:**
+- **API** (`route.ts`): Create REST/API endpoints; call from client or Server Actions.
+- **Server Pages**: Default for pages; fetch in component or pass from layout; no `useState`, `useEffect`, `onClick`.
+- **Client Pages**: Add `'use client'` only when needed (forms, interactivity, React Query). Keep boundary as low as possible—wrap only the interactive subtree.
+
+**Data flow:** Server Page fetches → passes to Client child. Or Client uses React Query/useEffect to call API.
+
+## 4. Folder Structure
+
+Feature-driven architecture:
+
+```
+src/
+├─ app/
+│  ├─ layout.tsx
+│  ├─ page.tsx
+│  ├─ providers.tsx
+│  └─ api/           # Route Handlers (API layer)
+│     └─ users/
+│        └─ route.ts
+├─ public/           # Static assets (images, favicon)
+├─ features/
+│  ├─ auth/
+│  │  ├─ components/
+│  │  ├─ hooks/
+│  │  ├─ api/
+│  │  ├─ authSlice.ts
+│  │  ├─ authSaga.ts
+│  │  └─ types.ts
+│  └─ dashboard/
+├─ shared/
+│  ├─ components/
+│  ├─ hooks/
+│  ├─ utils/
+│  ├─ constants/
+│  └─ types/
+├─ services/
+│  └─ apiClient.ts
+├─ config/
+│  └─ env.ts
+└─ seo/
+   └─ metadata.ts
+```
+
+## 3a. Naming Conventions
+
+- Components: PascalCase. Hooks: `use` + camelCase. Utils: camelCase. Constants: UPPER_SNAKE or object. Types: PascalCase.
+
+## 3b. Utils, Constants, Endpoints
+
+**Utils** (`shared/utils/`): Pure helpers — `format.ts`, `cn.ts`, `storage.ts`.
+
+**Constants** (`shared/constants/`): `routes.ts`, `keys.ts`, `limits.ts`.
+
+**ROUTES** (path strings for navigation):
+
+```ts
+export const ROUTES = { HOME: '/', LOGIN: '/login', DASHBOARD: '/dashboard' } as const
+```
+
+**Endpoints** (`shared/constants/endpoints.ts`):
+
+```ts
+export const ENDPOINTS = {
+  AUTH: { LOGIN: '/auth/login', ME: '/auth/me' },
+  USERS: { LIST: '/users', BY_ID: (id: string) => `/users/${id}` }
+} as const
+```
+
+## 3c. Path Aliases
+
+`tsconfig.json`: `"paths": { "@/*": ["./src/*"] }`. Optional: `@features`, `@shared`, `@services`.
+
+## 3d. Barrel Exports
+
+Use `index.ts` in shared folders. Prefer direct imports for large modules.
+
+## 3e. Responsive Design & Theming
+
+Mobile-first. Tailwind breakpoints. Theming: Context/Redux; CSS vars; `data-theme="dark"`; `prefers-color-scheme` for initial load.
+
+## 3f. next.config.js
+
+Configure images, rewrites, env:
+
+```js
+/** @type {import('next').NextConfig} */
+export default {
+  images: { remotePatterns: [{ protocol: 'https', hostname: 'cdn.example.com' }] },
+  env: { NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL }
+}
+```
+
+## 3g. i18n (Optional)
+
+Use `next-intl` or `react-i18next` with `next.config` rewrites for locale prefixes. Store translations in `messages/{lang}.json`.
+
+## 4. Environment Variables
+
+```
+NEXT_PUBLIC_API_URL=https://api.example.com
+```
+
+```ts
+export const env = { apiUrl: process.env.NEXT_PUBLIC_API_URL ?? "" }
+```
+
+Never use `NEXT_PUBLIC_` for secrets. Use `.env`, `.env.development`, `.env.production`.
+
+## 5. TypeScript Rules
+
+`strict`, `noImplicitAny`, `strictNullChecks`, `noUncheckedIndexedAccess`. Avoid `any`; use Zod for API contracts.
+
+## 7. Routing (App Router)
+
+```
+app/
+├─ page.tsx
+├─ dashboard/
+│  └─ page.tsx
+└─ blog/
+   └─ [slug]/
+      └─ page.tsx
+```
+
+## 7a. Server vs Client Components
+
+- **Server** (default): No `'use client'`; render on server; async; fetch in component; no `useState`, `useEffect`, event handlers, or browser APIs.
+- **Client**: Add `'use client'` at top of file; render in browser; use hooks, React Query, `onClick`, etc. Import only from Server→Client; never import Client into Server (use composition).
+
+## 7b. Layouts
+
+Root `app/layout.tsx`; nested `app/dashboard/layout.tsx` for shared chrome.
+
+## 7c. Loading, Error, Not Found
+
+- `loading.tsx`: Suspense boundary.
+- `error.tsx`: Error boundary (Client); use `reset`.
+- `not-found.tsx`: 404; call `notFound()` from Server Components.
+
+## 7d. Middleware (Protected Routes)
+
+```ts
+// middleware.ts
+import { NextResponse } from 'next/server'
+
+export function middleware(request: Request) {
+  const token = request.cookies.get('auth-token')
+  if (!token && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+  return NextResponse.next()
+}
+
+export const config = { matcher: ['/dashboard/:path*'] }
+```
+
+## 7e. Route Groups
+
+`(auth)`, `(dashboard)` for layout grouping without affecting URL.
+
+## 7f. generateMetadata
+
+```ts
+export async function generateMetadata({ params }): Promise<Metadata> {
+  const post = await fetchPost(params.slug)
+  return { title: post.title, description: post.excerpt }
+}
+```
+
+## 7g. Server Actions (Optional)
+
+`'use server'` for mutations without API route. Prefer API routes for complex logic.
+
+## 7h. generateStaticParams (SSG)
+
+For static generation of dynamic routes:
+
+```ts
+export async function generateStaticParams() {
+  const posts = await fetchPosts()
+  return posts.map(p => ({ slug: p.slug }))
+}
+```
+
+## 7i. next/link
+
+Use `<Link href={...}>` for internal navigation instead of `<a>`. Enables prefetching and client-side transitions.
+
+## 9. Providers Setup
+
+`app/providers.tsx` (Client Component):
+
+```tsx
+'use client'
+import { useState } from 'react'
+import { Provider } from 'react-redux'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { store } from '@/app/store'
+
+export function Providers({ children }) {
+  const [queryClient] = useState(() => new QueryClient())
+  return (
+    <Provider store={store}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </Provider>
+  )
+}
+```
+
+Use in root layout: `<Providers>{children}</Providers>`. Add `.nvmrc` or `engines` in `package.json` for Node version pinning.

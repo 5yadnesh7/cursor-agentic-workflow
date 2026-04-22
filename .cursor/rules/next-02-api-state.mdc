@@ -1,0 +1,150 @@
+---
+description: Next.js API layer, Zod, forms, Redux, Saga, React Query
+globs: "**/*.tsx,**/*.ts,**/*.jsx,**/*.js"
+alwaysApply: false
+---
+
+# Next.js — API & State (Part 2)
+
+## 10. API Layer (Client → Backend)
+
+`services/apiClient.ts` — used by **Client Components** and Sagas to call external API or Next.js Route Handlers:
+
+```ts
+import axios from "axios"
+import { env } from "@/config/env"
+
+export const apiClient = axios.create({
+  baseURL: env.apiUrl,
+  timeout: 10000
+})
+```
+
+Always validate responses with Zod. Feature API example:
+
+```ts
+// features/auth/api/login.ts
+export async function loginApi(payload: { email: string; password: string }) {
+  const res = await apiClient.post(ENDPOINTS.AUTH.LOGIN, payload)
+  return UserSchema.parse(res.data)
+}
+```
+
+## 10a. Route Handlers (API Layer — Server)
+
+`app/api/` — creates HTTP endpoints. Runs on server only.
+
+```ts
+// app/api/users/route.ts
+import { NextResponse } from 'next/server'
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const page = searchParams.get('page') ?? '1'
+  const data = await fetchUsersFromDB(parseInt(page))
+  return NextResponse.json(data)
+}
+
+export async function POST(request: Request) {
+  const body = await request.json()
+  const validated = CreateUserSchema.parse(body)
+  const user = await createUser(validated)
+  return NextResponse.json(user, { status: 201 })
+}
+```
+
+Use for: BFF, proxy to external API, simple CRUD. For complex logic, prefer external backend. **Never** expose secrets; server-only code.
+
+## 10b. Interceptors
+
+Request: attach auth token. Response: handle 401, map errors, optional toast.
+
+## 10c. Request Cancellation
+
+Pass `AbortSignal`. React Query passes `signal` to `queryFn`.
+
+## 10d. Rate Limiting (429)
+
+Handle `Retry-After`; show user message; optionally retry with backoff.
+
+## 11. Runtime Validation (Zod)
+
+```ts
+export const UserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string().email()
+})
+export type User = z.infer<typeof UserSchema>
+```
+
+Use `.parse()` or `.safeParse()`; handle failures centrally.
+
+## 12. Forms
+
+React Hook Form + Zod. For API validation errors: `setError(field, { type: 'server', message })`.
+
+## 13. Global State (Redux Toolkit)
+
+Slice per feature. Prefer reducers + actions.
+
+Store setup `app/store.ts`:
+
+```ts
+import { configureStore } from '@reduxjs/toolkit'
+import createSagaMiddleware from 'redux-saga'
+import rootReducer from './rootReducer'
+import rootSaga from './rootSaga'
+
+const saga = createSagaMiddleware()
+export const store = configureStore({
+  reducer: rootReducer,
+  middleware: (g) => g().concat(saga)
+})
+saga.run(rootSaga)
+export type RootState = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch
+```
+
+## 13a. Selectors (Reselect)
+
+```ts
+export const selectIsLoggedIn = createSelector(
+  (state) => state.auth,
+  (auth) => !!auth.user
+)
+```
+
+## 13b. Typed Hooks
+
+Export `useAppDispatch`, `useAppSelector`, `useAppStore` with types.
+
+## 14. Redux Saga
+
+Use for complex async: multi-step auth, background sync, polling.
+
+## 15. React Query
+
+v5 object syntax. Centralize query keys:
+
+```ts
+export const queryKeys = {
+  users: { all: () => ['users'] as const, detail: (id: string) => ['users', id] as const }
+}
+```
+
+```tsx
+useQuery({ queryKey: queryKeys.users.all(), queryFn: fetchUsers, staleTime: 60_000 })
+```
+
+- Optimistic updates: `onMutate`, `onError` rollback, `onSettled` refetch.
+- Infinite: `useInfiniteQuery`.
+- Polling: `refetchInterval`, `refetchOnWindowFocus`.
+- Prefetch: `queryClient.prefetchQuery` on Link hover.
+- Add React Query DevTools in dev.
+
+## 16. Error Handling & Auth
+
+- API errors: toast for user; Sentry for stack; `setError` for form validation.
+- Auth persistence: token in httpOnly cookie or localStorage; `/auth/me` on load; refresh in interceptor.
+- Logout: clear state, storage, redirect.

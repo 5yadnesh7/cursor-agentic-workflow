@@ -1,0 +1,89 @@
+---
+description: Next.js components, hooks, UI patterns, CSS
+globs: "**/*.tsx,**/*.ts,**/*.jsx,**/*.js"
+alwaysApply: false
+---
+
+# Next.js — Components & UI (Part 3)
+
+## 17. Custom Hooks
+
+Business logic in hooks. `use` prefix; keep pure and testable. Example `useDebounce`:
+
+```ts
+export function useDebounce<T>(value: T, delay = 300) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
+}
+```
+
+## 18. Component Guidelines
+
+- Functional components; single responsibility; < 200 LOC.
+- Semantic elements; stable `key` for lists; prefer `forwardRef` when ref needed.
+- Client Components only when interactivity required; Server when possible.
+
+## 19. Reusable Components
+
+Place in `shared/components/`. Variants via props. Use `forwardRef` when exposing DOM ref:
+
+```tsx
+export const Input = forwardRef<HTMLInputElement, InputProps>(
+  (props, ref) => <input ref={ref} {...props} />
+)
+```
+
+## 19a. cn() / tailwind-merge
+
+```ts
+// shared/utils/cn.ts
+import { clsx } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs))
+```
+
+Use to merge and override Tailwind classes.
+
+## 19b. Error Boundary Component
+
+Shared `ErrorFallback` for `error.tsx`. Use `react-error-boundary` with retry.
+
+## 20. Loading & Skeleton
+
+Match skeleton layout to content to avoid CLS.
+
+## 21. Toast / Notification
+
+Provider (sonner, react-hot-toast). Call from sagas/interceptors.
+
+## 22. Layout Primitives
+
+PageLayout, Header, Sidebar, Footer in `shared/components/layout/`.
+
+## 23. Empty State
+
+Dedicated component for no-data / no-results.
+
+## 24. Context Usage
+
+Theme, locale. Avoid for server data. Keep value stable (memoize).
+
+## 25. Compound Components
+
+Modal.Header, Modal.Body, Modal.Footer with implicit context.
+
+## 26. Utils Structure
+
+`shared/utils/`: `format.ts`, `cn.ts`, `storage.ts`, `index.ts` barrel.
+
+## 27. CSS & Styling
+
+- **Tailwind**: content paths in config; `@tailwind` in `globals.css`.
+- **Design tokens**: colors, spacing, radii in `tailwind.config.js` or CSS vars.
+- **Z-index scale**: `--z-dropdown`, `--z-modal`, `--z-toast`.
+- **Conventions**: Prefer utilities over `@apply`; use `cn()` (clsx + twMerge); avoid arbitrary values when token exists.
+- **CSS Modules**: `.module.css` for scoped styles.

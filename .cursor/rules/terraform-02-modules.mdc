@@ -1,0 +1,128 @@
+---
+description: Terraform modules, variables, outputs
+globs: "**/*.tf,**/*.tf.json"
+alwaysApply: false
+---
+
+# Terraform — Modules (Part 2)
+
+## Modules
+
+- Extract reusable components into `modules/`. Call from root or env dirs.
+- Each module: `main.tf`, `variables.tf`, `outputs.tf`, `README.md`.
+- **Pin module versions**: `source = "git::https://...?ref=v1.0"` or registry `version = "~> 1.0"`.
+
+```hcl
+# root main.tf
+module "vpc" {
+  source = "./modules/vpc"
+  env    = var.env
+  cidr   = var.vpc_cidr
+}
+
+module "rds" {
+  source  = "./modules/rds"
+  vpc_id  = module.vpc.id
+  subnet_ids = module.vpc.private_subnet_ids
+}
+```
+
+```hcl
+# modules/vpc/main.tf
+resource "aws_vpc" "main" {
+  cidr_block           = var.cidr
+  enable_dns_hostnames = true
+  tags = {
+    Name        = "${var.env}-vpc"
+    Environment = var.env
+    ManagedBy   = "Terraform"
+  }
+}
+```
+
+## Variables
+
+- **Variables** for all configurable values. No hardcoded env-specific data in `.tf`.
+- Use `variable` blocks with `type`, `description`, and `default` when sensible. Use `validation` blocks for constraints.
+- Sensitive: `sensitive = true`; never log or output in plain text.
+- Use `.tfvars` files for env-specific values; never commit secrets.
+- Use `TF_VAR_*` env vars to pass values (e.g. `TF_VAR_db_password`); useful for CI and secrets.
+
+```hcl
+# variables.tf
+variable "env" {
+  type        = string
+  description = "Environment (dev, staging, prod)"
+}
+
+variable "db_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "region" {
+  type        = string
+  description = "AWS region"
+  default     = "us-east-1"
+  validation {
+    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]+$", var.region))
+    error_message = "Region must be valid AWS region format."
+  }
+}
+
+variable "project" {
+  type        = string
+  description = "Project name for tagging"
+}
+
+variable "instance_type" {
+  type    = string
+  default = "t3.micro"
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "VPC CIDR block"
+  default     = "10.0.0.0/16"
+}
+
+variable "enable_alerts" {
+  type    = bool
+  default = false
+}
+
+variable "allowed_ports" {
+  type    = list(number)
+  default = [80, 443]
+}
+
+variable "cidr" {
+  type    = string
+  default = "0.0.0.0/0"
+}
+
+variable "extra_volumes" {
+  type    = list(any)
+  default = []
+}
+```
+
+## Outputs
+
+- **Outputs** for values needed by other modules or scripts. Document each output.
+- Never output sensitive values; use `sensitive = true` if unavoidable.
+- Use `terraform plan -var-file=prod.tfvars` for env-specific plans.
+
+```hcl
+# outputs.tf
+output "vpc_id" {
+  value       = aws_vpc.main.id
+  description = "VPC ID for other modules"
+}
+
+output "db_endpoint" {
+  value       = aws_db_instance.main.endpoint
+  description = "DB endpoint"
+  sensitive   = true
+}
+```

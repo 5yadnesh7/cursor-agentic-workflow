@@ -1,0 +1,107 @@
+---
+description: Express middleware, auth, JWT, passwords, security, error handling
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Middleware & Auth (Part 3)
+
+## asyncHandler and error handling
+
+*All patterns apply to both TypeScript and JavaScript. Omit type annotations for plain JS.*
+
+- Use **async/await**; wrap route handlers with `asyncHandler` or try/catch.
+- Centralized error middleware catches all errors. Never leave unhandled rejections.
+- Consistent error shape: `{ success: false, code: string, message: string }`. Include stack only in dev.
+- Use custom error classes with `statusCode` so error middleware can map to apiResponseTemplate.
+
+```ts
+// utils/errors.ts
+class AppError extends Error {
+  constructor(message: string, public statusCode: number = 500) {
+    super(message);
+    this.name = this.constructor.name;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+class NotFoundError extends AppError { constructor(msg = 'Not found') { super(msg, 404); } }
+class ValidationError extends AppError { constructor(msg: string, public errors?: unknown) { super(msg, 400); } }
+```
+
+```ts
+// Error middleware (4 params required for Express to recognize it)
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  const status = err instanceof AppError ? err.statusCode : 500;
+  res.status(status).json({
+    success: false,
+    code: err.name || 'INTERNAL_ERROR',
+    message: err.message,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+  });
+});
+
+// asyncHandler (JS: const asyncHandler = (fn) => (req, res, next) => ...)
+export const asyncHandler = (fn: RequestHandler) => (req: Request, res: Response, next: NextFunction) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+```
+
+## Middleware order
+
+**Order:** requestId → helmet → cors → json → rateLimit → csrf (if cookies) → routes → 404 → errorHandler.
+
+| Middleware | Purpose |
+|------------|---------|
+| requestId | Generate/forward `X-Request-Id`; set `req.id` |
+| helmet | Security headers |
+| cors | Allowed origins only (never `*` in prod) |
+| json | `express.json({ limit })` |
+| rateLimit | express-rate-limit |
+| csrf | When using cookies/sessions; skip for JWT-only |
+| notFound | 404 for unknown routes |
+| errorHandler | Central error middleware |
+
+```js
+// server.js
+require('dotenv').config();
+const app = require('./app');
+const { config } = require('./config/env');
+const server = app.listen(config.port, () => console.log(`Listening on ${config.port}`));
+process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
+```
+
+```js
+// app.js
+const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(requestId);
+app.use(helmet());
+app.use(cors({ origin: config.corsOrigin }));
+app.use(express.json({ limit: config.bodyLimit ?? '10mb' }));
+app.use(rateLimit);
+if (config.useCsrf) app.use(csrf);
+app.use('/api/v1', v1Router);
+app.use(notFound);
+app.use(errorHandler);
+```
+
+## Auth middleware
+
+- Validate JWT (or session); attach `req.user`. Use `Authorization: Bearer <token>`.
+- Optional auth: middleware sets `req.user` only when token present; use `requireAuth` for protected routes.
+
+**JWT best practices:**
+- Set expiry (`exp`); short-lived access tokens (e.g. 15min) + refresh tokens.
+- Do not store sensitive data in payload (base64, not encrypted).
+- Verify `alg`; use RS256 when possible.
+- Strong `JWT_SECRET` (min 32 chars); rotate on compromise.
+
+**Password handling:**
+- Hash with **bcrypt** (min 10 rounds) or **argon2**; never plain text.
+- Do not log passwords; exclude from error messages.
+
+## Security
+
+- Helmet, CORS, rate limiting, body size limit, trust proxy when behind reverse proxy.
+- Auth via middleware; never trust client for auth.
+- HTTPS in production; no secrets in code or logs; mask in logs.

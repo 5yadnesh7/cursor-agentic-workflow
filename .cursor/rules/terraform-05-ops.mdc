@@ -1,0 +1,90 @@
+---
+description: Terraform CI, security, pre-commit, checklist
+globs: "**/*.tf,**/*.tf.json"
+alwaysApply: false
+---
+
+# Terraform — Ops (Part 5)
+
+## Formatting and validation
+
+- `terraform fmt -recursive` before commit.
+- `terraform validate` in CI.
+- **tflint** for linting. **terraform-docs** for module docs.
+
+```bash
+terraform fmt -recursive
+terraform validate
+tflint
+```
+
+## Pre-commit (optional)
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.83.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: tflint
+```
+
+## CI/CD
+
+- Run `terraform plan` on PR; require approval for apply.
+- Use `terraform plan -out=tfplan`; apply with `terraform apply tfplan`.
+- **Plan file**: `tfplan` can contain secrets; never commit. Delete after apply.
+- Use `terraform plan -detailed-exitcode` in CI: exit 2 when changes detected (drift).
+- **Destroy**: Run `terraform plan -destroy` first; require manual approval.
+- **-target**: Use sparingly for targeted apply; can create inconsistent state.
+- Separate pipelines per environment (dev, staging, prod).
+
+## Security
+
+- **No secrets** in `.tf` or `.tfvars` committed. Use env vars, secret managers, or CI secrets.
+- Use `sensitive = true` for variables/outputs. Avoid logging plan output with secrets.
+- Restrict state backend access (IAM, encryption at rest).
+
+## Workspaces (optional)
+
+- Use workspaces for multiple envs in same codebase; or separate directories per env.
+- `terraform workspace list`; `terraform workspace select prod`. Document which approach the project uses.
+
+## Optional tooling
+
+- **Cost estimation**: Infracost for cost preview.
+- **Policy / security**: Checkov, OPA, Sentinel.
+- **Provisioners**: Avoid; use configuration management (Ansible, Chef) or cloud-init instead.
+
+## README
+
+- Document: how to run (`terraform init`, `plan`, `apply`), state location, env-specific tfvars, project structure.
+
+## Debugging workflow (IaC issues)
+
+When fixing Terraform issues: reproduce → root cause → fix → verify → commit.
+
+| Action | Command |
+|--------|---------|
+| Validate | `terraform validate` |
+| Plan | `terraform plan` (or `terraform plan -out=tfplan`) |
+| Lint | `tflint` |
+| Format | `terraform fmt -recursive` |
+| Commit | `fix(scope): [issue description]` |
+
+No unit tests; verify with `terraform plan` and apply in non-prod first. Document changes in commit message.
+
+## Best-practice checklist
+
+- [ ] **Structure**: One resource group per file; modules for reuse.
+- [ ] **Variables**: No hardcoded env data; use tfvars, TF_VAR_*; sensitive = true for secrets; validation where useful.
+- [ ] **Outputs**: Documented; no sensitive data.
+- [ ] **State**: Remote backend; locking; never commit .tfstate.
+- [ ] **Providers**: Pinned versions; required_version.
+- [ ] **Tagging**: Environment, Project, ManagedBy on all resources.
+- [ ] **Data sources**: Use for existing resources; no hardcoded IDs.
+- [ ] **CI**: fmt, validate, plan on PR; apply with approval.
+- [ ] **Security**: No secrets in repo; restrict state access; do not commit tfplan.
+- [ ] **Optional**: Module versioning; provider alias; dynamic/for; cost tools; policy tools.

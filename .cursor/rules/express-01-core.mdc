@@ -1,0 +1,155 @@
+---
+description: Express and Node.js stack, init, folder structure, config, API response template
+globs: "**/server/**/*.ts,**/server/**/*.js,**/backend/**/*.ts,**/backend/**/*.js,**/api/**/*.ts,**/api/**/*.js,**/routes/**/*.ts,**/routes/**/*.js,**/lib/**/*.ts,**/lib/**/*.js,**/modules/**/*.ts,**/modules/**/*.js,**/middleware/**/*.ts,**/middleware/**/*.js,**/db/**/*.ts,**/db/**/*.js,**/server.ts,**/server.js,**/app.ts,**/app.js"
+alwaysApply: false
+---
+
+# Express & Node.js — Core (Part 1)
+
+## Stack and initialization
+
+- **Runtime**: Node.js (LTS). Pin version in `.nvmrc` or `engines` in `package.json`.
+- **Strict mode**: Enable `"use strict"` (Node default for ES modules) or `"strict": true` in tsconfig.
+- **Framework**: Express. TypeScript or plain JavaScript; examples show both where syntax differs.
+- **Validation**: Zod (or Joi, express-validator).
+- **Logging**: Pino or Winston.
+- **Testing**: Vitest or Jest; Supertest for HTTP.
+
+```bash
+mkdir my-api && cd my-api
+npm init -y
+npm install express cors helmet dotenv zod express-rate-limit pino pino-pretty
+# TypeScript (optional):
+npm install -D typescript @types/node @types/express ts-node-dev vitest supertest
+# Plain JavaScript:
+npm install -D nodemon vitest supertest
+```
+
+## Folder structure
+
+Use **module-based** layout: each domain has its own folder with service, controller, schema, and route.
+
+```
+src/
+├─ server.js            # Root entry: load env, create app, start server, graceful shutdown
+├─ app.js               # Express app setup (optional; can be required inside server.js)
+├─ config/
+│  └─ env.js
+├─ middleware/
+│  ├─ errorHandler.js
+│  ├─ auth.js
+│  ├─ requestId.js
+│  ├─ csrf.js           # CSRF protection (when using cookies/sessions)
+│  ├─ rateLimit.js      # Rate limiting
+│  ├─ validateBody.js   # Reusable body validation (Zod)
+│  └─ notFound.js       # 404 handler
+├─ modules/
+│  ├─ user/
+│  │  ├─ user.service.ts
+│  │  ├─ user.controller.ts
+│  │  ├─ user.schema.ts
+│  │  └─ user.route.ts
+│  ├─ auth/
+│  │  ├─ auth.service.ts
+│  │  ├─ auth.controller.ts
+│  │  ├─ auth.schema.ts
+│  │  └─ auth.route.ts
+│  └─ order/
+│     ├─ order.service.ts
+│     ├─ order.controller.ts
+│     ├─ order.schema.ts
+│     └─ order.route.ts
+├─ db/
+│  ├─ config.ts        # DB connection, pool
+│  ├─ migration/        # Schema migrations
+│  └─ seeder/           # Seed data scripts
+├─ __tests__/           # or co-locate: moduleName.service.test.ts next to service
+├─ utils/
+│  ├─ asyncHandler.ts
+│  ├─ methods.ts        # Common helper methods
+│  ├─ constants.ts      # App-wide constants
+│  ├─ endpoint.ts       # API path constants (if required)
+│  └─ apiResponseTemplate.js  # SuccessResponse, CreatedResponse, BadRequestError, etc.
+└─ types/
+   └─ express.d.ts     # req.user etc.
+```
+
+**Per module:** schema, controller, service, route. **DB:** config, migration/, seeder/. **Utils:** methods, constants, endpoint, apiResponseTemplate. Rules: One module per resource; thin controllers; logic in services. Mount: `app.use('/api/v1/users', userRoutes)`.
+
+## API response template
+
+Use named functions for every status. File: `utils/apiResponseTemplate.js`.
+
+```js
+const InternalServerError = (res, error) =>
+  res.status(500).json({ success: false, message: 'Internal Server Error', error: error.message || 'Something went wrong' });
+const SuccessResponse = (res, message, data) =>
+  res.status(200).json({ success: true, message: message || 'Success', data: data || null });
+const BadRequestError = (res, message, errors = null) =>
+  res.status(400).json({ success: false, message: message || 'Bad Request', ...(errors !== null && { errors }) });
+const NotFoundError = (res, message) =>
+  res.status(404).json({ success: false, message: message || 'Entry not found in database' });
+const CreatedResponse = (res, message, data) =>
+  res.status(201).json({ success: true, message: message || 'Resource created successfully', data: data || null });
+const ForbiddenError = (res, message, code = null) =>
+  res.status(403).json({ success: false, message: message || 'Access denied', ...(code && { code }) });
+const ConflictError = (res, message) =>
+  res.status(409).json({ success: false, status: 'error', code: 'CONFLICT', message: message || 'Conflict occurred' });
+const ServiceUnavailableError = (res, message) =>
+  res.status(503).json({ success: false, message: message || 'Service temporarily unavailable' });
+const UnauthorizedError = (res, message) =>
+  res.status(401).json({ success: false, message: message || 'Unauthorized' });
+
+module.exports = { InternalServerError, SuccessResponse, BadRequestError, NotFoundError, CreatedResponse, ForbiddenError, ConflictError, ServiceUnavailableError, UnauthorizedError };
+```
+
+**Usage in controller:** Import helpers; return `SuccessResponse(res, 'Success', data)` or `NotFoundError(res, 'Not found')`. Map thrown errors to the right helper in error middleware.
+
+## Configuration and environment
+
+- All config from **environment variables**. Use `dotenv`; load in entry (e.g. `server.ts`).
+- **Never** commit `.env`. Provide `.env.example` with keys and dummy values.
+- Validate required vars at startup; fail fast if missing.
+
+```txt
+# .env.example
+PORT=3000
+NODE_ENV=development
+DATABASE_URL=postgresql://user:pass@localhost:5432/db
+JWT_SECRET=your-secret-min-32-chars
+CORS_ORIGINS=https://app.example.com
+BODY_LIMIT=10mb
+```
+
+```ts
+// config/env.ts (or env.js — omit types for plain JS)
+const config = {
+  port: parseInt(process.env.PORT ?? '3000', 10),
+  nodeEnv: process.env.NODE_ENV ?? 'development',
+  dbUrl: process.env.DATABASE_URL,
+  jwtSecret: process.env.JWT_SECRET,
+};
+if (!config.dbUrl || !config.jwtSecret) throw new Error('Missing required env vars');
+export { config };
+```
+
+## README
+
+- Document: how to run (`npm install`, `npm run dev`), env vars (link to `.env.example`), API base path, project structure.
+
+## Naming conventions
+
+- **Files**: camelCase for utils/services; kebab or camel for routes.
+- **Routes**: plural resource (`/users`, `/orders`). Verbs only when needed (`POST /auth/login`).
+- **Response shape**: Consistent envelope: `{ success, data? }` or `{ success: false, code, message }`.
+
+**types/express.d.ts** (extend Request for `req.user`):
+```ts
+declare global {
+  namespace Express {
+    interface Request {
+      user?: { id: string; email: string };
+    }
+  }
+}
+```

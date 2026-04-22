@@ -1,0 +1,333 @@
+---
+description: React + Vite API layer, Zod validation, forms, Redux, Saga, React Query, store
+globs: "**/*.tsx,**/*.jsx,**/*.ts,**/*.js"
+alwaysApply: false
+---
+
+# React + Vite — API & State (Part 2)
+
+## 8. API Layer
+
+Centralize network logic.
+
+`src/services/apiClient.ts`:
+
+```ts
+import axios from 'axios'
+import { env } from '@/config/env'
+
+export const apiClient = axios.create({
+  baseURL: env.apiUrl,
+  timeout: 10000,
+  headers: { 'Content-Type': 'application/json' }
+})
+```
+
+Feature API example: `features/auth/api/login.ts`:
+
+```ts
+import { apiClient } from '@/services/apiClient'
+import { UserSchema } from '../types'
+
+export async function loginApi(payload: { email: string; password: string }) {
+  const res = await apiClient.post('/login', payload)
+  return UserSchema.parse(res.data)
+}
+```
+
+Rule: always parse/validate responses with Zod (see next).
+
+## 8b. API Interceptors
+
+Request: attach auth token. Response: handle 401, map errors, optionally show toast.
+
+```ts
+apiClient.interceptors.request.use(config => {
+  const token = getStoredToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+apiClient.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401) {
+      clearStoredToken()
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
+```
+
+## 8c. Request Cancellation
+
+Pass `signal` from `AbortController` for cancelable requests. React Query and fetch support this. Use when component unmounts or when refetching to avoid race conditions.
+
+```ts
+export async function fetchUsers(signal?: AbortSignal) {
+  const res = await apiClient.get('/users', { signal })
+  return UserListSchema.parse(res.data)
+}
+```
+
+## 9. Runtime Validation (Zod)
+
+Zod as single source of truth for runtime validation.
+
+Example `features/auth/types.ts`:
+
+```ts
+import { z } from 'zod'
+
+export const UserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string().email()
+})
+
+export type User = z.infer<typeof UserSchema>
+```
+
+Guidelines:
+- Parse API responses with `.parse()` or `.safeParse()` and handle failures centrally.
+- Expose types via `z.infer` for consistent TS + runtime contracts.
+
+## 10. Forms (React Hook Form + Zod)
+
+Install `@hookform/resolvers`.
+
+Example usage:
+
+```tsx
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+
+const schema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6)
+})
+
+export function LoginForm() {
+  const { register, handleSubmit, formState } = useForm({
+    resolver: zodResolver(schema)
+  })
+
+  const onSubmit = data => { /* call login */ }
+  return (/* form jsx */)
+}
+```
+
+Rule: validate on submit or on blur depending on UX needs; always display server-side errors.
+
+For API validation errors, use `setError` from React Hook Form:
+
+```tsx
+catch (err) {
+  if (err.errors) {
+    err.errors.forEach(({ path, message }) => setError(path, { type: 'server', message }))
+  }
+}
+```
+
+## 11. Global State (Redux Toolkit)
+
+Structure slices per feature.
+
+`features/auth/authSlice.ts` example:
+
+```ts
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+import type { User } from './types'
+
+type AuthState = { user: User | null; loading: boolean; error?: string | null }
+
+const initialState: AuthState = { user: null, loading: false, error: null }
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState,
+  reducers: {
+    loginRequest: (state) => { state.loading = true; state.error = null },
+    loginSuccess: (state, action: PayloadAction<User>) => {
+      state.loading = false; state.user = action.payload
+    },
+    loginFailure: (state, action: PayloadAction<string>) => {
+      state.loading = false; state.error = action.payload
+    }
+  }
+})
+export const { loginRequest, loginSuccess, loginFailure } = authSlice.actions
+export default authSlice.reducer
+```
+
+Prefer slice reducers + actions; avoid scattered `dispatch` strings.
+
+## 11b. Selectors (Reselect)
+
+Use `createSelector` from Redux Toolkit (or Reselect) for derived/memoized state. Keeps components simple and avoids unnecessary recalculations.
+
+```ts
+import { createSelector } from '@reduxjs/toolkit'
+
+const selectAuth = state => state.auth
+export const selectIsLoggedIn = createSelector(selectAuth, auth => !!auth.user)
+```
+
+## 12. Async Flows (Redux Saga)
+
+Use Saga for orchestrating complex async workflows like multi-step auth, background sync, polling.
+
+Example `features/auth/authSaga.ts`:
+
+```ts
+import { takeLatest, call, put } from 'redux-saga/effects'
+import { loginRequest, loginSuccess, loginFailure } from './authSlice'
+import { loginApi } from './api/login'
+
+function* loginWorker(action: any) {
+  try {
+    const user = yield call(loginApi, action.payload)
+    yield put(loginSuccess(user))
+  } catch (err: any) {
+    yield put(loginFailure(err.message || 'Login failed'))
+  }
+}
+
+export function* authSaga() {
+  yield takeLatest(loginRequest.type, loginWorker)
+}
+```
+
+Root saga:
+
+```ts
+import { all } from 'redux-saga/effects'
+import { authSaga } from '@/features/auth/authSaga'
+
+export default function* rootSaga() {
+  yield all([authSaga()])
+}
+```
+
+## 13. Server State (React Query)
+
+Use React Query for data caching, background refresh, optimistic updates. React Query v5 uses object syntax.
+
+Example (v5):
+
+```tsx
+import { useQuery } from '@tanstack/react-query'
+import { fetchUsers } from '@/features/user/api'
+import { queryKeys } from '@/features/user/queryKeys'
+
+export function useUsers() {
+  return useQuery({
+    queryKey: queryKeys.users.list(),
+    queryFn: fetchUsers,
+    staleTime: 1000 * 60 * 2
+  })
+}
+```
+
+## 13b. Query Key Factory
+
+Centralize query keys to avoid typos and enable invalidation. Place in feature or `shared/constants`.
+
+```ts
+// features/user/queryKeys.ts
+export const queryKeys = {
+  users: {
+    all: () => ['users'] as const,
+    list: (filters?: string) => [...queryKeys.users.all(), 'list', filters] as const,
+    detail: (id: string) => [...queryKeys.users.all(), 'detail', id] as const
+  }
+}
+```
+
+Use `queryClient.invalidateQueries({ queryKey: queryKeys.users.all() })` for broad invalidation.
+
+## 13c. React Query DevTools
+
+Add `@tanstack/react-query-devtools` in dev. Conditionally render: `{import.meta.env.DEV && <ReactQueryDevtools />}`.
+
+Do not mix server state into Redux unless necessary.
+
+## 14. Store Setup
+
+`src/app/store.ts`:
+
+```ts
+import { configureStore } from '@reduxjs/toolkit'
+import createSagaMiddleware from 'redux-saga'
+import rootReducer from './rootReducer'
+import rootSaga from './rootSaga'
+
+const saga = createSagaMiddleware()
+
+export const store = configureStore({
+  reducer: rootReducer,
+  middleware: (getDefault) => getDefault({ thunk: false }).concat(saga)
+})
+
+saga.run(rootSaga)
+
+export type RootState = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch
+```
+
+## 14b. Typed Hooks
+
+Export `useAppDispatch`, `useAppSelector`, `useAppStore` for type-safe Redux usage.
+
+```ts
+import { useDispatch, useSelector, useStore } from 'react-redux'
+import type { AppDispatch, RootState } from './store'
+
+export const useAppDispatch = useDispatch.withTypes<AppDispatch>()
+export const useAppSelector = useSelector.withTypes<RootState>()
+export const useAppStore = useStore.withTypes<RootState>()
+```
+
+## 14c. Error Handling & Toasts
+
+Centralize API error handling. Show user-facing errors via toast (e.g. react-hot-toast, sonner). In interceptors or saga `catch`, call `toast.error(message)`. For form validation errors, display inline. Log full errors to Sentry in non-dev.
+
+## 14d. Auth Persistence
+
+Store token in httpOnly cookie (preferred) or localStorage. On app load, dispatch `authCheck` or call `/auth/me` with stored token; restore user or redirect to login. Handle token refresh in interceptor (401 → refresh → retry) when using access/refresh pattern.
+
+## 14e. Optimistic Updates (React Query)
+
+Use `onMutate` to snapshot and optimistically update cache, `onError` to rollback, `onSettled` to refetch.
+
+```tsx
+useMutation({
+  mutationFn: updateUser,
+  onMutate: async (newUser) => {
+    await queryClient.cancelQueries(['user', id])
+    const prev = queryClient.getQueryData(['user', id])
+    queryClient.setQueryData(['user', id], newUser)
+    return { prev }
+  },
+  onError: (err, vars, ctx) => {
+    if (ctx?.prev) queryClient.setQueryData(['user', id], ctx.prev)
+  },
+  onSettled: () => queryClient.invalidateQueries(['user', id])
+})
+```
+
+## 14f. Pagination & Infinite Query
+
+Use `useInfiniteQuery` for infinite scroll. Pass `pageParam` and `getNextPageParam`:
+
+```tsx
+useInfiniteQuery({
+  queryKey: queryKeys.users.list(),
+  queryFn: ({ pageParam = 0 }) => fetchUsers({ page: pageParam }),
+  getNextPageParam: (last) => last.nextPage ?? undefined
+})
+```
+
+For cursor-based pagination, use `cursor` in `pageParam` and `getNextPageParam` return.
