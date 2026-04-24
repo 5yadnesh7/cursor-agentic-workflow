@@ -22,7 +22,7 @@ Produces or updates the Tier A persistent project map. This workflow does not mo
 
 ## Chat Rules
 
-Follow the Chat Rules in `workflow-main.md`: no narration, no session files, one decision per turn with a reply menu on the last line. All state lives in the conversation. This workflow is the one exception that writes a durable file at the repo level: `.cursor/context/PROJECT_CONTEXT.md` (and optional siblings `modules.md`, `glossary.md`, `dependencies.md`).
+Follow the Chat Rules in `workflow-main.md`: no narration, no session files, one decision per turn with a reply menu on the last line. All state lives in the conversation. This workflow is the one exception that writes a durable file at the repo level: `.cursor/context/PROJECT_CONTEXT.md` (and optional siblings `modules.md`, `dependencies.md`, `data_layer.md`, `infra.md`, `glossary.md`).
 
 ## Step 0 — Prompt Normalization
 
@@ -49,7 +49,7 @@ Reply: `approve` | `modify <feedback>` | `abort`
 
 ## Step 2 — Run get-project-context (dispatched)
 
-Dispatch `subagent-context-scout` (wraps the `get-project-context` skill; see `.cursor/workflows/SUBAGENT_DISPATCH.md`) with the chosen `mode`, `focus_area` (if `focused`), and default `exclude_patterns`. The subagent writes `PROJECT_CONTEXT.md` (and optionally `modules.md`, `glossary.md`, `dependencies.md`) and returns a preview summary + freshness metadata.
+Dispatch `subagent-context-scout` (wraps the `get-project-context` skill; see `.cursor/workflows/SUBAGENT_DISPATCH.md`) with the chosen `mode`, `focus_area` (if `focused`), and default `exclude_patterns`. The subagent writes `PROJECT_CONTEXT.md` (and optionally `modules.md`, `dependencies.md`, `data_layer.md`, `infra.md`, `glossary.md`) and returns a preview summary + freshness metadata.
 
 If the subagent returns its writes-blocked fallback (output contains `ACTION REQUIRED FOR CALLER`), the workflow persists the returned doc body to `.cursor/context/PROJECT_CONTEXT.md` itself.
 

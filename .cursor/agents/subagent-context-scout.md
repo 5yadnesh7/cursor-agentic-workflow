@@ -27,14 +27,14 @@ Follow the 10-step workflow from the skill exactly:
 2. Scan top-level layout (respect excludes).
 3. Detect stack and tooling from manifests.
 4. Identify entry points and boundaries.
-5. Map modules and their links using the real import graph.
+5. Walk app modules (map purpose, public API, deps, risks) and infra modules (IaC, K8s/Helm, CI/CD pipelines, Serverless/Edge, config-mgmt) separately.
 6. Capture data, config, and secrets layout (names only, never values).
 7. Capture build, test, and deploy surface.
 8. Summarize conventions and workspace rules actually observed in code.
 9. Write `.cursor/context/PROJECT_CONTEXT.md` using the skill's template.
 10. Stamp freshness metadata and name a handoff.
 
-Keep `PROJECT_CONTEXT.md` under ~500 lines. Push extra detail into `modules.md`, `dependencies.md`, `glossary.md`, or `PROJECT_CONTEXT.<area>.md` when size demands it.
+`PROJECT_CONTEXT.md` has no length limit — completeness always wins over brevity. Use sibling files (`modules.md`, `dependencies.md`, `data_layer.md`, `infra.md`, `glossary.md`, `PROJECT_CONTEXT.<area>.md`) to hold deep detail; cross-reference them with links from the main doc. Never truncate `PROJECT_CONTEXT.md`.
 
 ## Hard Rules
 
